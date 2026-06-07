@@ -25,7 +25,7 @@ LOGS_DIR = os.path.join(PROJECT_ROOT, "experiments", "logs")
 class DataConfig:
     """Data & Preprocessing Configuration."""
     # Lookback window for temporal context x_t
-    window_size: int = 60              # 60 trading days (~3 months)
+    window_size: int = 30              # Adjusted to avoid ValueErrors with small data splits
     train_ratio: float = 0.7
     val_ratio: float = 0.15
     test_ratio: float = 0.15
