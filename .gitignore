@@ -1,0 +1,37 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Virtual environments
+venv/
+.env/
+.env
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Data folders (do not push raw or processed datasets)
+data/raw/
+data/processed/
+data/macroeconomic/
+
+# Experiment output and model checkpoints
+experiments/
+results/
+
+# IDE settings
+.vscode/
+.idea/
+
+# PyTorch / model weights
+*.pt
+*.pth
+
+# Logs
+*.log
