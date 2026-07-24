@@ -105,4 +105,27 @@ python main.py --mode evaluate
 
 # Backtest
 python main.py --mode backtest
+
+
+
+
+#What the Critic Network does
+#In this model, the critic network estimates the value of the current market state.
+
+#Specifically
+#It receives:
+
+        #h_temp: the latent market state produced by the regime encoder
+        #regime_probs: the soft regime probability vector
+
+#It outputs:
+#       a scalar value estimate V(s) for the current state#
+
+#Why it matters
+#PPO uses the critic to compute the advantage:
+        #advantage = actual_return - value_estimate
+#That advantage tells the actor how much better or worse the action was than expected.
+#The critic is also trained with a value loss, so it learns to predict future reward more accurately over time.
+
+#So the critic is not choosing portfolio weights. It is the value estimator that guides policy updates and stabilizes PPO training.
 ```

@@ -124,6 +124,7 @@ class PPOTrainer:
         rewards = []
         dones = []
         regime_probs_list = []
+        portfolio_returns = []
 
         obs = self.train_env.reset()
         lstm_hidden = None
@@ -164,6 +165,7 @@ class PPOTrainer:
             rewards.append(reward)
             dones.append(float(done))
             regime_probs_list.append(regime_probs)
+            portfolio_returns.append(portfolio_return)
 
             if done:
                 obs = self.train_env.reset()
@@ -186,6 +188,7 @@ class PPOTrainer:
             "log_probs": np.array(log_probs),
             "values": np.array(values),
             "rewards": np.array(rewards),
+            "portfolio_returns": np.array(portfolio_returns),
             "dones": np.array(dones),
             "regime_probs": np.array(regime_probs_list),
             "last_value": last_value,
@@ -249,7 +252,7 @@ class PPOTrainer:
             ).float().mean(),
         }
 
-    def update(self, rollout: Dict) -> Dict[str, float]:
+    def update(self, rollout: Dict, extra_epochs: int = 0) -> Dict[str, float]:
         """
         Perform PPO update using collected rollout.
         Joint end-to-end gradient update through all components.
@@ -278,7 +281,7 @@ class PPOTrainer:
 
         # PPO update epochs
         epoch_losses = []
-        for epoch in range(self.n_epochs):
+        for epoch in range(self.n_epochs + extra_epochs):
             # Mini-batch updates
             indices = torch.randperm(len(observations))
             for start in range(0, len(observations), self.batch_size):
@@ -323,6 +326,24 @@ class PPOTrainer:
         """Evaluate agent on validation environment."""
         if self.val_env is None:
             return {}
+        # Show windowing information for validation environment
+        try:
+            if hasattr(self.val_env, "features") and self.val_env.features is not None:
+                v_shape = self.val_env.features.shape
+                win_size = v_shape[1]
+                logger.info(
+                    "Windowing: Preprocessor turns the full time series into sliding windows of size %d",
+                    win_size,
+                )
+                logger.info("Each window is one observation for the model. Windows shape: %s", v_shape)
+                sample_v = self.val_env.features[0]
+                logger.info(
+                    "Sample validation window[0] shape %s; first row: %s",
+                    sample_v.shape,
+                    np.array2string(sample_v[0], precision=4, separator=","),
+                )
+        except Exception:
+            logger.debug("Could not log validation windows sample.")
 
         self.agent.eval()
         self.reward_calc.reset()
@@ -365,6 +386,25 @@ class PPOTrainer:
         logger.info(f"Parameters: {self.agent.count_parameters()}")
         logger.info("=" * 60)
 
+        # Show windowing information for training environment
+        try:
+            if hasattr(self.train_env, "features") and self.train_env.features is not None:
+                t_shape = self.train_env.features.shape
+                win_size = t_shape[1]
+                logger.info(
+                    "Windowing: Preprocessor turns the full time series into sliding windows of size %d",
+                    win_size,
+                )
+                logger.info("Each window is one observation for the model. Windows shape: %s", t_shape)
+                sample_t = self.train_env.features[0]
+                logger.info(
+                    "Sample training window[0] shape %s; first row: %s",
+                    sample_t.shape,
+                    np.array2string(sample_t[0], precision=4, separator=","),
+                )
+        except Exception:
+            logger.debug("Could not log training windows sample.")
+
         training_history = []
         start_time = time.time()
 
@@ -373,8 +413,15 @@ class PPOTrainer:
             rollout = self.collect_rollout()
             self.global_step += self.rollout_length
 
-            # Step 2: PPO update (joint end-to-end)
-            update_metrics = self.update(rollout)
+            # Step 2: Determine whether negative portfolio performance needs adaptive fine-tuning
+            extra_epochs = 2 if self.should_adapt_on_loss(rollout) else 0
+            if extra_epochs > 0:
+                logger.info(
+                    "Negative performance detected in recent rollout; applying %d extra fine-tuning epochs.",
+                    extra_epochs,
+                )
+
+            update_metrics = self.update(rollout, extra_epochs=extra_epochs)
 
             # Log training metrics
             for key, value in update_metrics.items():
@@ -441,6 +488,16 @@ class PPOTrainer:
         logger.info("Training complete!")
         return {"history": training_history}
 
+    def should_adapt_on_loss(self, rollout: Dict) -> bool:
+        """Return True when a recent rollout suffered negative portfolio returns."""
+        portfolio_returns = rollout.get("portfolio_returns")
+        if portfolio_returns is None or len(portfolio_returns) == 0:
+            return False
+
+        avg_return = float(np.mean(portfolio_returns))
+        worst_return = float(np.min(portfolio_returns))
+        return avg_return < 0.0 or worst_return < -0.02
+
     def save_checkpoint(self, filename: str):
         """Save model checkpoint."""
         path = os.path.join(self.save_dir, filename)
@@ -455,7 +512,8 @@ class PPOTrainer:
 
     def load_checkpoint(self, path: str):
         """Load model checkpoint."""
-        checkpoint = torch.load(path, map_location=self.device)
+        # checkpoint = torch.load(path, map_location=self.device)
+        checkpoint = torch.load(path, map_location=self.device, weights_only=False)
         self.agent.load_state_dict(checkpoint["model_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         self.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])

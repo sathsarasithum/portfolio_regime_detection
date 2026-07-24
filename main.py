@@ -254,7 +254,7 @@ def run_pipeline(args):
             logger.info("Loaded best model checkpoint for testing.")
 
         # Test evaluation
-        evaluate_env(agent, test_env, config.device, args.output_dir, "Test")
+        evaluate_env(agent, test_env, config.device, args.output_dir, "Test", asset_names=config.data.asset_names)
 
     elif args.mode == "eval":
         checkpoint_path = os.path.join(MODELS_DIR, args.checkpoint)
@@ -267,7 +267,7 @@ def run_pipeline(args):
         agent.to(args.device)
 
         # Evaluation on test set
-        evaluate_env(agent, test_env, args.device, args.output_dir, "Test")
+        evaluate_env(agent, test_env, args.device, args.output_dir, "Test", asset_names=config.data.asset_names)
     elif args.mode == "backtest":
         checkpoint_path = os.path.join(MODELS_DIR, args.checkpoint)
         if not os.path.exists(checkpoint_path):
@@ -285,10 +285,10 @@ def run_pipeline(args):
         agent.load_state_dict(checkpoint["model_state_dict"])
         agent.to(args.device)
 
-        evaluate_env(agent, test_env, args.device, args.output_dir, "Backtest")
+        evaluate_env(agent, test_env, args.device, args.output_dir, "Backtest", asset_names=config.data.asset_names)
 
 
-def evaluate_env(agent, env, device, output_dir, split_name="Test"):
+def evaluate_env(agent, env, device, output_dir, split_name="Test", asset_names=None):
     agent.eval()
     obs = env.reset()
     lstm_hidden = None
@@ -327,6 +327,27 @@ def evaluate_env(agent, env, device, output_dir, split_name="Test"):
         logger.info(f"Saved evaluation summary to: {summary_path}")
     except Exception as e:
         logger.warning(f"Failed to save evaluation summary: {e}")
+
+    # Save step-by-step portfolio weights and trading information
+    try:
+        records = []
+        for step, weights in enumerate(env.weight_history):
+            record = {
+                "step": int(step),
+                "portfolio_value": float(env.portfolio_history[step]),
+                "portfolio_return": float(env.return_history[step - 1]) if step > 0 else 0.0,
+                "total_cost": float(env.cost_history[step - 1]) if step > 0 else 0.0,
+            }
+            for asset_idx, weight in enumerate(weights):
+                asset_name = asset_names[asset_idx] if asset_names is not None and asset_idx < len(asset_names) else f"asset_{asset_idx}"
+                record[f"{asset_name}_weight"] = float(weight)
+            records.append(record)
+
+        weights_path = os.path.join(output_dir, f"{split_name.lower()}_weights.csv")
+        pd.DataFrame(records).to_csv(weights_path, index=False)
+        logger.info(f"Saved step-by-step weights to: {weights_path}")
+    except Exception as e:
+        logger.warning(f"Failed to save step-by-step weight history: {e}")
 
 
 if __name__ == "__main__":
