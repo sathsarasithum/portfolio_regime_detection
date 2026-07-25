@@ -50,7 +50,7 @@ class RegimeEncoderConfig:
     vsn_hidden_dim: int = 64           # Variable Selection Network hidden dim
     lstm_hidden_dim: int = 128         # LSTM hidden dimension
     lstm_num_layers: int = 2           # Number of LSTM layers
-    lstm_dropout: float = 0.1
+    lstm_dropout: float = 0.1          # Dropout used within the regime encoder (VSN/LSTM, graph prior, fusion, regime classifier)
 
     # Temporal Attention (Multi-Head Attention)
     mha_num_heads: int = 4

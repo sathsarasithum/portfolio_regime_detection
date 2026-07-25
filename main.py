@@ -214,7 +214,10 @@ def run_pipeline(args):
         latent_state_dim=config.regime_encoder.latent_state_dim,
         actor_hidden_dims=config.actor.hidden_dims,
         critic_hidden_dims=config.critic.hidden_dims,
-        dropout=config.regime_encoder.lstm_dropout,
+        encoder_dropout=config.regime_encoder.lstm_dropout,
+        mha_dropout=config.regime_encoder.mha_dropout,
+        actor_dropout=config.actor.dropout,
+        critic_dropout=config.critic.dropout,
         allow_short=config.environment.allow_short_selling,
     )
 

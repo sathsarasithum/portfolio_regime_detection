@@ -51,7 +51,10 @@ class PPOAgent(nn.Module):
         # Actor/Critic config
         actor_hidden_dims: list = None,
         critic_hidden_dims: list = None,
-        dropout: float = 0.1,
+        encoder_dropout: float = 0.1,
+        mha_dropout: float = 0.1,
+        actor_dropout: float = 0.1,
+        critic_dropout: float = 0.1,
         allow_short: bool = False,
     ):
         super().__init__()
@@ -74,13 +77,13 @@ class PPOAgent(nn.Module):
             lstm_hidden_dim=lstm_hidden_dim,
             lstm_num_layers=lstm_num_layers,
             mha_num_heads=mha_num_heads,
-            mha_dropout=dropout,
+            mha_dropout=mha_dropout,
             gnn_hidden_dim=gnn_hidden_dim,
             gnn_num_heads=gnn_num_heads,
             gnn_num_layers=gnn_num_layers,
             n_regimes=n_regimes,
             latent_state_dim=latent_state_dim,
-            dropout=dropout,
+            dropout=encoder_dropout,
         )
 
         # ── Actor Network (Policy π) ──
@@ -88,7 +91,7 @@ class PPOAgent(nn.Module):
             input_dim=latent_state_dim,
             n_assets=n_assets,
             hidden_dims=actor_hidden_dims,
-            dropout=dropout,
+            dropout=actor_dropout,
             allow_short=allow_short,
             n_regimes=n_regimes,
         )
@@ -97,7 +100,7 @@ class PPOAgent(nn.Module):
         self.critic = CriticNetwork(
             input_dim=latent_state_dim,
             hidden_dims=critic_hidden_dims,
-            dropout=dropout,
+            dropout=critic_dropout,
             n_regimes=n_regimes,
         )
 
