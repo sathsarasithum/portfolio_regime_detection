@@ -16,84 +16,55 @@ logger = logging.getLogger(__name__)
 
 class CSEDataLoader:
     """
-    Loads and merges raw CSE market data files from raw sheets.
-    Handles dynamic header detection, sheet concatenation, and pivoting.
+    Loads CSE market data from the merged raw CSV file.
+    Handles dynamic header detection and pivoting.
     """
 
-    def __init__(self, raw_data_dir: str, macro_data_dir: Optional[str] = None):
+    def __init__(
+        self,
+        raw_data_dir: str,
+        macro_data_dir: Optional[str] = None,
+        merged_filename: str = "banking_sector_2021_2025.csv",
+    ):
         self.raw_data_dir = raw_data_dir
         self.macro_data_dir = macro_data_dir
+        self.merged_filename = merged_filename
 
     def load_raw_cse_data(self) -> pd.DataFrame:
         """
-        Scan and load all Excel/CSV files in the raw data directory.
-        Uses dynamic header detection to parse sheets.
-        
+        Load the merged CSE banking sector CSV (all years combined) from the
+        raw data directory. Generate it with scripts/merge_raw_data.py if it
+        doesn't exist yet.
+
         Returns:
-            Concatenated DataFrame of all loaded raw data.
+            DataFrame of the merged raw data.
         """
-        all_dfs = []
         if not os.path.exists(self.raw_data_dir):
             raise FileNotFoundError(f"Raw data directory not found: {self.raw_data_dir}")
 
-        files = sorted(os.listdir(self.raw_data_dir))
-        for filename in files:
-            filepath = os.path.join(self.raw_data_dir, filename)
-            ext = os.path.splitext(filename)[1].lower()
+        filepath = os.path.join(self.raw_data_dir, self.merged_filename)
+        if not os.path.exists(filepath):
+            raise FileNotFoundError(
+                f"Merged data file not found: {filepath}. "
+                f"Run scripts/merge_raw_data.py to generate it from the yearly CSVs."
+            )
 
-            if ext in [".xls", ".xlsx"]:
-                logger.info(f"Loading Excel file: {filename}")
-                try:
-                    xl = pd.ExcelFile(filepath)
-                    for sheet in xl.sheet_names:
-                        # Load first 10 rows to detect header row
-                        df_sample = pd.read_excel(filepath, sheet_name=sheet, header=None, nrows=10)
-                        header_row = None
-                        for i in range(len(df_sample)):
-                            row_vals = [str(x).strip().upper() for x in df_sample.iloc[i].values]
-                            if any("COMPANY ID" in x or "COMPANY CODE" in x or "COMPANY" in x for x in row_vals):
-                                header_row = i
-                                break
+        logger.info(f"Loading merged CSV file: {self.merged_filename}")
 
-                        if header_row is None:
-                            logger.warning(f"Header not found in sheet '{sheet}' of {filename}. Skipping.")
-                            continue
+        # Load first 10 rows to detect header row
+        df_sample = pd.read_csv(filepath, header=None, nrows=10)
+        header_row = None
+        for i in range(len(df_sample)):
+            row_vals = [str(x).strip().upper() for x in df_sample.iloc[i].values]
+            if any("COMPANY ID" in x or "COMPANY CODE" in x or "COMPANY" in x for x in row_vals):
+                header_row = i
+                break
 
-                        # Load full sheet starting from header_row
-                        df_sheet = pd.read_excel(filepath, sheet_name=sheet, skiprows=header_row)
-                        df_sheet.columns = [str(c).strip() for c in df_sheet.columns]
-                        all_dfs.append(df_sheet)
-                        logger.info(f"Loaded sheet '{sheet}': shape={df_sheet.shape}")
-                except Exception as e:
-                    logger.error(f"Error loading Excel file {filename}: {e}")
+        if header_row is None:
+            raise ValueError(f"Header row not found in {self.merged_filename}.")
 
-            elif ext == ".csv":
-                logger.info(f"Loading CSV file: {filename}")
-                try:
-                    df_sample = pd.read_csv(filepath, header=None, nrows=10)
-                    header_row = None
-                    for i in range(len(df_sample)):
-                        row_vals = [str(x).strip().upper() for x in df_sample.iloc[i].values]
-                        if any("COMPANY ID" in x or "COMPANY CODE" in x or "COMPANY" in x for x in row_vals):
-                            header_row = i
-                            break
-
-                    if header_row is None:
-                        logger.warning(f"Header not found in CSV {filename}. Skipping.")
-                        continue
-
-                    df_csv = pd.read_csv(filepath, skiprows=header_row)
-                    df_csv.columns = [str(c).strip() for c in df_csv.columns]
-                    all_dfs.append(df_csv)
-                    logger.info(f"Loaded CSV: shape={df_csv.shape}")
-                except Exception as e:
-                    logger.error(f"Error loading CSV file {filename}: {e}")
-
-        if not all_dfs:
-            raise ValueError(f"No valid data sheets could be loaded from {self.raw_data_dir}")
-
-        # Concatenate all dataframes
-        combined_df = pd.concat(all_dfs, ignore_index=True)
+        combined_df = pd.read_csv(filepath, skiprows=header_row)
+        combined_df.columns = [str(c).strip() for c in combined_df.columns]
         logger.info(f"Combined raw data shape: {combined_df.shape}")
         return combined_df
 

@@ -1,0 +1,14 @@
+day1_choices = {
+    'window_size': None,          # fill in your choice, e.g. 30
+    'use_returns': True,
+    'use_volatility': True,
+    'use_momentum': True,
+    'use_volume_features': True,
+    'normalize_method': None,     # 'zscore' | 'minmax' | 'robust'
+    'n_assets': None,             # e.g. 47
+}
+import json
+print(json.dumps(day1_choices, indent=2))
+# (Optional) save to disk so Day 2 notebook can load it
+with open('/content/day1_choices.json', 'w') as f:
+    json.dump(day1_choices, f, indent=2)

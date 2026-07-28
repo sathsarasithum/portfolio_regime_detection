@@ -1,0 +1,9 @@
+{
+  "window_size": null,
+  "use_returns": true,
+  "use_volatility": true,
+  "use_momentum": true,
+  "use_volume_features": true,
+  "normalize_method": null,
+  "n_assets": null
+}
