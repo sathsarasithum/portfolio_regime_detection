@@ -16,57 +16,92 @@ logger = logging.getLogger(__name__)
 
 class CSEDataLoader:
     """
-    Loads CSE market data from the merged raw CSV file.
+    Loads CSE market data from raw yearly CSV files or a merged CSV.
     Handles dynamic header detection and pivoting.
     """
+
+    YEAR_FILENAMES = {
+        2016: "2016_banking_sector.csv",
+        2017: "2017_banking_sector.csv",
+        2018: "2018_banking_sector.csv",
+        2019: "2019_banking_sector.csv",
+        2020: "2020_banking_sector.csv",
+        2021: "2021_banking_sector.csv",
+        2022: "2022_banking_sector.csv",
+        2023: "2023_banking_sector.csv",
+        2024: "2024_banking_sector.csv",
+        2025: "2025_banking_sector.csv",
+    }
 
     def __init__(
         self,
         raw_data_dir: str,
         macro_data_dir: Optional[str] = None,
-        merged_filename: str = "banking_sector_2021_2025.csv",
     ):
         self.raw_data_dir = raw_data_dir
         self.macro_data_dir = macro_data_dir
-        self.merged_filename = merged_filename
+
+    def _detect_header_row(self, filepath: str) -> int:
+        df_sample = pd.read_csv(filepath, header=None, nrows=10)
+        for i in range(len(df_sample)):
+            row_vals = [str(x).strip().upper() for x in df_sample.iloc[i].values]
+            if any("COMPANY ID" in x or "COMPANY CODE" in x or "COMPANY" in x for x in row_vals):
+                return i
+        raise ValueError(f"Header row not found in {os.path.basename(filepath)}.")
+
+    def _load_csv_with_dynamic_header(self, filepath: str) -> pd.DataFrame:
+        if not os.path.exists(filepath):
+            raise FileNotFoundError(f"CSV file not found: {filepath}")
+
+        header_row = self._detect_header_row(filepath)
+        df = pd.read_csv(filepath, skiprows=header_row)
+        df.columns = [str(c).strip() for c in df.columns]
+        return df
 
     def load_raw_cse_data(self) -> pd.DataFrame:
         """
-        Load the merged CSE banking sector CSV (all years combined) from the
-        raw data directory. Generate it with scripts/merge_raw_data.py if it
-        doesn't exist yet.
+        Load each yearly CSE banking sector CSV (2021-2025) one by one from
+        the raw data directory and concatenate them.
 
         Returns:
-            DataFrame of the merged raw data.
+            DataFrame of the concatenated raw data.
         """
         if not os.path.exists(self.raw_data_dir):
             raise FileNotFoundError(f"Raw data directory not found: {self.raw_data_dir}")
 
-        filepath = os.path.join(self.raw_data_dir, self.merged_filename)
-        if not os.path.exists(filepath):
-            raise FileNotFoundError(
-                f"Merged data file not found: {filepath}. "
-                f"Run scripts/merge_raw_data.py to generate it from the yearly CSVs."
-            )
-
-        logger.info(f"Loading merged CSV file: {self.merged_filename}")
-
-        # Load first 10 rows to detect header row
-        df_sample = pd.read_csv(filepath, header=None, nrows=10)
-        header_row = None
-        for i in range(len(df_sample)):
-            row_vals = [str(x).strip().upper() for x in df_sample.iloc[i].values]
-            if any("COMPANY ID" in x or "COMPANY CODE" in x or "COMPANY" in x for x in row_vals):
-                header_row = i
-                break
-
-        if header_row is None:
-            raise ValueError(f"Header row not found in {self.merged_filename}.")
-
-        combined_df = pd.read_csv(filepath, skiprows=header_row)
-        combined_df.columns = [str(c).strip() for c in combined_df.columns]
+        yearly_frames = [df for _year, df in self.iter_yearly_raw_cse_data()]
+        combined_df = pd.concat(yearly_frames, ignore_index=True)
         logger.info(f"Combined raw data shape: {combined_df.shape}")
         return combined_df
+
+    def load_yearly_raw_cse_data(self, year: int) -> pd.DataFrame:
+        """
+        Load raw CSE data for a single year.
+
+        Args:
+            year: Year to load (2021, 2022, 2023, 2024, or 2025).
+
+        Returns:
+            Raw DataFrame for that year.
+        """
+        if year not in self.YEAR_FILENAMES:
+            raise ValueError(f"Unsupported year: {year}. Supported years: {list(self.YEAR_FILENAMES.keys())}")
+
+        filepath = os.path.join(self.raw_data_dir, self.YEAR_FILENAMES[year])
+        logger.info(f"Loading raw CSV file for year {year}: {self.YEAR_FILENAMES[year]}")
+        yearly_df = self._load_csv_with_dynamic_header(filepath)
+        logger.info(f"Year {year} raw data shape: {yearly_df.shape}")
+        return yearly_df
+
+    def iter_yearly_raw_cse_data(self):
+        """
+        Iterate over raw data files year by year.
+
+        Yields:
+            Tuple[int, pd.DataFrame] for each supported year.
+        """
+        for year in sorted(self.YEAR_FILENAMES.keys()):
+            yield year, self.load_yearly_raw_cse_data(year)
 
     def load_prices_and_volumes(
         self,
@@ -204,6 +239,11 @@ class CSEDataLoader:
 
         logger.info(f"Final aligned price matrix shape: {price_matrix.shape}")
         logger.info(f"Final aligned volume matrix shape: {volume_matrix.shape}")
+
+        trading_days = price_matrix.index.strftime("%Y-%m-%d").tolist()
+        logger.info("Loaded trading days (%d): %s", len(trading_days), trading_days)
+        print(f"[cse_loader] trading_days_count={len(trading_days)}")
+        print(f"[cse_loader] trading_days={trading_days}")
 
         # ── Save to parquet cache for fast reloads ──────────────────────
         try:

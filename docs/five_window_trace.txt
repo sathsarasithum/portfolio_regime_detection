@@ -1,0 +1,2011 @@
+Could not save cache (continuing): Unable to find a usable engine; tried using: 'pyarrow', 'fastparquet'.
+A suitable version of pyarrow or fastparquet is required for parquet support.
+Trying to import the above resulted in these errors:
+ - `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+ - `Import fastparquet` failed. fastparquet is required for parquet support. Use pip or conda to install the fastparquet package.
+
+====================================================================================================
+PART 0 :: RAW DATA -> ENGINEERED FEATURES -> NORMALISED -> 5 WINDOWS
+====================================================================================================
+
+----------------------------------------------------------------------------------------------------
+0.1  RAW price matrix straight out of CSEDataLoader (data/raw/2021..2025_banking_sector.csv)
+----------------------------------------------------------------------------------------------------
+price_matrix  shape = (836, 10)   (dates x assets)
+volume_matrix shape = (836, 10)
+date range          = 2021-01-04  ->  2025-12-31
+n_assets selected   = 10
+asset order (node order fed to the GAT) = ['COMB', 'DFCC', 'HNB', 'NDB', 'PABC', 'SEYB', 'UBC', 'NTB', 'SAMP', 'ABL']
+
+FOCUS ASSET for detailed printing: index 0 = 'COMB'
+
+First 6 raw rows, first 6 assets (Rs. close price):
+COMPANY ID    COMB  DFCC     HNB   NDB  PABC  SEYB
+TRADING DATE                                      
+2021-01-04    72.6  65.1  103.70  78.8  13.4  34.0
+2021-01-05    72.7  66.0  104.40  79.3  13.6  34.9
+2021-01-06    73.0  65.1  104.60  79.1  13.7  34.5
+2021-01-07    73.1  65.0  104.10  78.3  13.9  35.0
+2021-01-08    73.3  64.8  105.25  78.3  14.6  34.0
+2021-01-11    72.9  64.0  106.25  78.6  14.1  34.6
+
+First 6 raw rows, first 6 assets (share volume):
+COMPANY ID        COMB      DFCC       HNB       NDB       PABC      SEYB
+TRADING DATE                                                             
+2021-01-04    307193.0  188532.0  424927.0  394329.0   242559.0  175031.0
+2021-01-05    122193.0  218278.0  301946.0  193220.0   195241.0  914725.0
+2021-01-06    100144.0  192902.0  242713.0   69683.0   171695.0  103043.0
+2021-01-07     88582.0  361090.0  257191.0  175266.0   667123.0  909922.0
+2021-01-08     48760.0  153286.0  487702.0  101111.0  4166299.0   42344.0
+2021-01-11     19961.0  164882.0   98966.0  180664.0  1059010.0  731060.0
+
+----------------------------------------------------------------------------------------------------
+0.2  FEATURE ENGINEERING  (Preprocessor.engineer_features)
+----------------------------------------------------------------------------------------------------
+engineer_features output shape = (816, 150)  (T=816 usable dates, 150 raw feature columns)
+rows lost to rolling windows / diffs: 20
+after reorder_per_asset       = (816, 150)   = n_assets(10) x n_features_per_asset(15)
+
+The 15 features every asset contributes, in order:
+    f0  COMB
+    f1  COMB_vol_5d
+    f2  COMB_vol_10d
+    f3  COMB_vol_20d
+    f4  COMB_mom_5d
+    f5  COMB_mom_10d
+    f6  COMB_mom_20d
+    f7  COMB_rsi
+    f8  COMB_macd
+    f9  COMB_macd_signal
+    f10 COMB_macd_hist
+    f11 COMB_bb_pct
+    f12 COMB_vol_ratio_5d
+    f13 COMB_vol_ratio_10d
+    f14 COMB_vol_ratio_20d
+
+----------------------------------------------------------------------------------------------------
+0.3  CHRONOLOGICAL SPLIT + NORMALISATION (scaler fitted on TRAIN only)
+----------------------------------------------------------------------------------------------------
+train = 571 steps  (2021-02-03 -> 2024-12-19)
+val   = 122 steps,  test = 123 steps
+
+create_windows -> windows_train shape = (542, 30, 150)  = (n_windows, window_size=30, n_features=150)
+prices_train_aligned shape = (542, 10)  (price on each window's END date)
+
+----------------------------------------------------------------------------------------------------
+0.4  THE 5 WINDOWS WE WILL TRACE
+----------------------------------------------------------------------------------------------------
+  window 1: rows 0..29   dates 2021-02-03 -> 2021-03-19   decision date = 2021-03-19, reward earned over 2021-03-19 -> 2021-03-22
+  window 2: rows 1..30   dates 2021-02-05 -> 2021-03-22   decision date = 2021-03-22, reward earned over 2021-03-22 -> 2021-03-23
+  window 3: rows 2..31   dates 2021-02-08 -> 2021-03-23   decision date = 2021-03-23, reward earned over 2021-03-23 -> 2021-03-24
+  window 4: rows 3..32   dates 2021-02-09 -> 2021-03-24   decision date = 2021-03-24, reward earned over 2021-03-24 -> 2021-03-25
+  window 5: rows 4..33   dates 2021-02-10 -> 2021-03-25   decision date = 2021-03-25, reward earned over 2021-03-25 -> 2021-03-26
+
+----------------------------------------------------------------------------------------------------
+0.5  RAW (un-normalised) engineered features for 'COMB' on the 5 decision dates
+----------------------------------------------------------------------------------------------------
+TRADING DATE        2021-03-19  2021-03-22  2021-03-23  2021-03-24  2021-03-25
+COMB                 -0.015019    0.012531    0.001245    0.019705    0.006079
+COMB_vol_5d           0.237148    0.233811    0.215132    0.211543    0.208336
+COMB_vol_10d          0.271169    0.267632    0.232959    0.255779    0.232914
+COMB_vol_20d          0.349565    0.351012    0.349681    0.353910    0.319041
+COMB_mom_5d          -0.028186    0.002497   -0.007407    0.028858    0.024845
+COMB_mom_10d          0.014066    0.011335   -0.012285    0.006135    0.031250
+COMB_mom_20d          0.039318    0.044213    0.034749    0.043257    0.091270
+COMB_rsi             43.558282   45.238095   48.125000   56.024096   64.052288
+COMB_macd             0.233647    0.232126    0.236266    0.364453    0.500617
+COMB_macd_signal      0.274869    0.266321    0.260310    0.281138    0.325034
+COMB_macd_hist       -0.041222   -0.034194   -0.024043    0.083314    0.175583
+COMB_bb_pct           0.457187    0.574461    0.572209    0.781994    0.866272
+COMB_vol_ratio_5d     0.837738    0.291289    0.240680    1.012628    0.967644
+COMB_vol_ratio_10d    0.851749    0.263944    0.182772    0.692055    0.592563
+COMB_vol_ratio_20d    0.630894    0.197352    0.132887    0.484308    0.403264
+
+----------------------------------------------------------------------------------------------------
+0.6  Z-SCORED values of the same cells  (x - mean)/std, StandardScaler fitted on train
+----------------------------------------------------------------------------------------------------
+verification for decision date 2021-03-19:
+                          raw  train_mean  train_std  z = (raw-mean)/std  norm_train value
+COMB                -0.015019    0.000490   0.027704           -0.559809         -0.559809
+COMB_vol_5d          0.237148    0.303654   0.297587           -0.223484         -0.223484
+COMB_vol_10d         0.271169    0.333606   0.275570           -0.226575         -0.226575
+COMB_vol_20d         0.349565    0.360322   0.255100           -0.042167         -0.042167
+COMB_mom_5d         -0.028186    0.004093   0.064581           -0.499823         -0.499823
+COMB_mom_10d         0.014066    0.007755   0.094024            0.067123          0.067123
+COMB_mom_20d         0.039318    0.018406   0.143259            0.145979          0.145979
+COMB_rsi            43.558282   52.116374  20.655376           -0.414328         -0.414328
+COMB_macd            0.233647    0.213142   2.438301            0.008410          0.008410
+COMB_macd_signal     0.274869    0.216253   2.307118            0.025407          0.025407
+COMB_macd_hist      -0.041222   -0.003111   0.715912           -0.053234         -0.053234
+COMB_bb_pct          0.457187    0.532871   0.333516           -0.226926         -0.226926
+COMB_vol_ratio_5d    0.837738    1.012893   0.892091           -0.196343         -0.196343
+COMB_vol_ratio_10d   0.851749    1.036332   1.167437           -0.158109         -0.158109
+COMB_vol_ratio_20d   0.630894    1.044026   1.390871           -0.297031         -0.297031
+
+====================================================================================================
+PART 1 :: MODEL CONSTRUCTION -- every block, its shape contract and its parameters
+====================================================================================================
+
+Parameter budget:
+  regime_encoder        505,989
+  actor                  67,339
+  critic                 67,329
+  total                 640,657
+
+  breakdown inside the regime encoder:
+    vsn_lstm.vsn                       16,669
+    vsn_lstm.lstm                     231,424
+    vsn_lstm.lstm_norm                    256
+    vsn_lstm.output_proj               16,512
+    temporal_attention                132,480
+    macro_graph                        58,724
+    fusion                             41,472
+    regime_classifier                   8,451
+    regime_temperature                      1
+
+  Parameters of VariableSelectionNetwork (shared by all 10 assets)  (total trainable = 16,669)
+    var_proj.weight                                  (960, 15)                14,400
+    selection_grn.fc1.weight                         (64, 15)                    960
+    selection_grn.fc1.bias                           (64,)                        64
+    selection_grn.fc2.weight                         (15, 64)                    960
+    selection_grn.fc2.bias                           (15,)                        15
+    selection_grn.gate.weight                        (15, 15)                    225
+    selection_grn.gate.bias                          (15,)                        15
+    selection_grn.layer_norm.weight                  (15,)                        15
+    selection_grn.layer_norm.bias                    (15,)                        15
+
+  Parameters of LSTM (2 layers)  (total trainable = 231,424)
+    weight_ih_l0                                     (512, 64)                32,768
+    weight_hh_l0                                     (512, 128)               65,536
+    bias_ih_l0                                       (512,)                      512
+    bias_hh_l0                                       (512,)                      512
+    weight_ih_l1                                     (512, 128)               65,536
+    weight_hh_l1                                     (512, 128)               65,536
+    bias_ih_l1                                       (512,)                      512
+    bias_hh_l1                                       (512,)                      512
+
+  Parameters of TemporalAttentionBlock (MHA + FFN)  (total trainable = 132,480)
+    mha.W_q.weight                                   (128, 128)               16,384
+    mha.W_q.bias                                     (128,)                      128
+    mha.W_k.weight                                   (128, 128)               16,384
+    mha.W_k.bias                                     (128,)                      128
+    mha.W_v.weight                                   (128, 128)               16,384
+    mha.W_v.bias                                     (128,)                      128
+    mha.W_o.weight                                   (128, 128)               16,384
+    mha.W_o.bias                                     (128,)                      128
+    mha.layer_norm.weight                            (128,)                      128
+    mha.layer_norm.bias                              (128,)                      128
+    ffn.0.weight                                     (256, 128)               32,768
+    ffn.0.bias                                       (256,)                      256
+    ffn.3.weight                                     (128, 256)               32,768
+    ffn.3.bias                                       (128,)                      128
+    ffn_norm.weight                                  (128,)                      128
+    ffn_norm.bias                                    (128,)                      128
+
+  Parameters of MacroGraphPrior (GAT)  (total trainable = 58,724)
+    learnable_adj                                    (10, 10)                    100
+    node_proj.weight                                 (64, 128)                 8,192
+    node_proj.bias                                   (64,)                        64
+    gat_layers.0.W                                   (2, 64, 64)               8,192
+    gat_layers.0.a_src                               (2, 64, 1)                  128
+    gat_layers.0.a_dst                               (2, 64, 1)                  128
+    gat_layers.1.W                                   (2, 128, 64)             16,384
+    gat_layers.1.a_src                               (2, 64, 1)                  128
+    gat_layers.1.a_dst                               (2, 64, 1)                  128
+    gat_norms.0.weight                               (128,)                      128
+    gat_norms.0.bias                                 (128,)                      128
+    gat_norms.1.weight                               (64,)                        64
+    gat_norms.1.bias                                 (64,)                        64
+    gat_residual_proj.0.weight                       (128, 64)                 8,192
+    gat_residual_proj.0.bias                         (128,)                      128
+    gat_residual_proj.1.weight                       (64, 128)                 8,192
+    gat_residual_proj.1.bias                         (64,)                        64
+    readout.0.weight                                 (64, 64)                  4,096
+    readout.0.bias                                   (64,)                        64
+    readout.3.weight                                 (64, 64)                  4,096
+    readout.3.bias                                   (64,)                        64
+
+  Parameters of ActorNetwork  (total trainable = 67,339)
+    log_std                                          (10,)                        10
+    regime_embed.weight                              (128, 3)                    384
+    regime_embed.bias                                (128,)                      128
+    feature_net.0.weight                             (256, 128)               32,768
+    feature_net.0.bias                               (256,)                      256
+    feature_net.1.weight                             (256,)                      256
+    feature_net.1.bias                               (256,)                      256
+    feature_net.4.weight                             (128, 256)               32,768
+    feature_net.4.bias                               (128,)                      128
+    feature_net.5.weight                             (128,)                      128
+    feature_net.5.bias                               (128,)                      128
+    mean_head.weight                                 (1, 128)                    128
+    mean_head.bias                                   (1,)                          1
+
+  Parameters of CriticNetwork  (total trainable = 67,329)
+    regime_embed.weight                              (128, 3)                    384
+    regime_embed.bias                                (128,)                      128
+    feature_net.0.weight                             (256, 128)               32,768
+    feature_net.0.bias                               (256,)                      256
+    feature_net.1.weight                             (256,)                      256
+    feature_net.1.bias                               (256,)                      256
+    feature_net.4.weight                             (128, 256)               32,768
+    feature_net.4.bias                               (128,)                      128
+    feature_net.5.weight                             (128,)                      128
+    feature_net.5.bias                               (128,)                      128
+    value_head.weight                                (1, 128)                    128
+    value_head.bias                                  (1,)                          1
+
+Optimizer = AdamW, 3 param groups
+    group 'regime_encoder' initial_lr=1.500e-04  current lr=0.000e+00  n_tensors=69
+    group 'actor         ' initial_lr=3.000e-04  current lr=0.000e+00  n_tensors=13
+    group 'critic        ' initial_lr=3.000e-04  current lr=0.000e+00  n_tensors=12
+scheduler: LambdaLR, warmup_steps=1000, total_steps=390 (total_timesteps=10000 // rollout_length=256 * n_epochs=10)
+    lr_lambda(0) = 0/1000 = 0.0  -> the FIRST optimizer.step() runs at lr = 0 exactly.
+    warmup_steps(1000) > total_steps(390), so with these defaults the LR only ever
+    ramps to 390/1000 = 39% of base and never reaches the cosine phase.
+
+----------------------------------------------------------------------------------------------------
+Environment configuration
+----------------------------------------------------------------------------------------------------
+  prices                 (542, 10)   (aligned to window end dates)
+  features (windows)     (542, 30, 150)
+  n_steps                541
+  initial_value          1,000,000.00 LKR
+  transaction_cost_rate  0.001      slippage 0.0005
+  allow_short            False   -> actor uses SOFTMAX (long-only)
+  max_position_size      0.3
+  vol_target             True  (inactive: only applies when allow_short=True)
+
+env.reset() -> observation dict:
+    features         (30, 150)
+    current_weights  (10,)  = [0. 0. 0. 0. 0.] ...  [min=0.000000 max=0.000000 mean=0.000000 std=0.000000]
+    portfolio_value  [1000000.]
+
+####################################################################################################
+WINDOW 1 / 5   |   env.current_step = 0   |   window 2021-02-03 -> 2021-03-19   |   reward over 2021-03-19 -> 2021-03-22
+####################################################################################################
+
+----------------------------------------------------------------------------------------------------
+STAGE 1 :: OBSERVATION TENSOR  (env -> agent)
+----------------------------------------------------------------------------------------------------
+  obs['features']            (30, 150)      (window_size=30, n_features=150)
+  after .unsqueeze(0)        (1, 30, 150)  (batch, T, N*F)
+  encoder reshape+permute -> (1, 10, 30, 15)  (batch, n_assets, T, F_per_asset)
+     view(B,T,N,F) then permute(0,2,1,3): column (asset i, feature j) of the flat
+     150-vector lands at x[0, i, :, j] -- this is why reorder_per_asset() is required.
+
+  x[0, 0] = the full (30, 15) z-scored window for 'COMB':
+                 f0       f1       f2       f3       f4       f5       f6       f7       f8       f9      f10      f11      f12      f13      f14
+2021-02-03   1.2395   1.3764   0.7765   0.9162  -1.3480  -0.8542   0.7561   0.5227   1.0884   1.3182  -0.5410   0.0128  -0.2853  -0.2328  -0.1733
+2021-02-05  -0.0618   1.3623   0.7318   0.9175  -0.9226  -1.0094   0.7357   0.5480   0.9475   1.2545  -0.8159  -0.0432  -0.3314  -0.2754  -0.2716
+2021-02-08  -0.1062   1.3619   0.7113   0.9203  -0.9246  -0.8004   0.6843   0.3989   0.8187   1.1764  -1.0026  -0.1123  -0.7600  -0.6856  -0.6014
+2021-02-09  -0.6431   1.3479   0.7158   0.9414  -1.1424  -0.9596   0.5400  -0.0782   0.6617   1.0807  -1.2290  -0.3222  -0.1582  -0.3298  -0.3374
+2021-02-10  -0.6542   0.1202   0.5581   0.9617  -0.1222  -1.4075   0.3858  -1.1067   0.4844   0.9667  -1.4656  -0.5419  -0.7753  -0.7108  -0.6375
+2021-02-11  -0.8998  -0.4736   0.5650   0.9908  -1.0099  -1.5610   0.2450  -1.4107   0.2768   0.8316  -1.7373  -0.8367   0.4218  -0.1898  -0.3121
+2021-02-12   1.2749   0.2756   0.7512   1.0296  -0.4614  -0.9309   0.5657  -0.8827   0.2015   0.7076  -1.5939  -0.5534  -0.7816  -0.7468  -0.6748
+2021-02-15  -0.1995   0.2732   0.7487   1.0292  -0.5004  -0.9575   0.5696  -0.9028   0.1262   0.5925  -1.4794  -0.7286   0.3588   0.0061  -0.3710
+2021-02-16  -1.1284   0.3932   0.7834   1.0371  -0.7013  -1.2313   0.0870  -1.4074  -0.0137   0.4708  -1.5640  -1.1747  -0.2652  -0.4401  -0.5586
+2021-02-17  -0.2535   0.3662   0.0925   0.8315  -0.5356  -0.4460  -0.4346  -1.3982  -0.1406   0.3467  -1.5960  -1.1796  -0.1919  -0.2701  -0.5017
+2021-02-18   0.2651   0.2749  -0.1256   0.2714  -0.0432  -0.7196  -1.0228  -1.1588  -0.2197   0.2306  -1.4915  -0.9880   1.3449   0.9724   0.1584
+2021-02-19   0.3559  -0.1493  -0.0863   0.2612  -0.4330  -0.6032  -1.0488  -1.0236  -0.2540   0.1305  -1.2859  -0.7951  -0.6268  -0.4406  -0.5310
+2021-02-22   0.3980  -0.0665  -0.0465   0.2616  -0.1807  -0.4609  -0.8313  -0.8816  -0.2496   0.0514  -1.0157  -0.5892  -0.0852  -0.0588  -0.3067
+2021-02-23  -1.4224   0.1139   0.1039   0.3238  -0.3053  -0.6800  -1.0640  -0.5311  -0.3424  -0.0315  -1.0646  -1.0047  -0.2615  -0.1278  -0.3611
+2021-02-24   0.4095   0.1587   0.1155   0.2647  -0.0228  -0.3798  -1.1689  -0.8441  -0.3828  -0.1064  -0.9608  -0.8085  -0.5232  -0.3832  -0.4599
+2021-02-25   2.2233   0.8847   0.4819   0.5282   0.8427   0.5545  -0.7389  -0.1353  -0.2507  -0.1384  -0.4080   0.2456   1.0933   0.7337   0.2029
+2021-03-01   0.2034   0.8890   0.3707   0.4944   0.7736   0.2248  -0.4997  -0.0592  -0.1291  -0.1383   0.0060   0.4647  -0.1197  -0.1315  -0.2330
+2021-03-02  -0.4165   0.9554   0.3854   0.4979   0.4094   0.1592  -0.5572  -0.0030  -0.0627  -0.1241   0.1865   0.3712  -0.5004  -0.4209  -0.4011
+2021-03-03  -0.4661   0.5951   0.2768   0.5022   0.8378   0.3607  -0.6230   0.0439  -0.0437  -0.1088   0.2018   0.2399   0.1000   0.0286  -0.0381
+2021-03-04  -0.8391   0.7866   0.3472   0.1093   0.2807   0.1824  -0.1992   0.0559  -0.0882  -0.1060   0.0410  -0.3892  -0.0500  -0.0285  -0.0154
+2021-03-05   0.5320  -0.2027   0.3623   0.0394  -0.4438   0.2633  -0.3333  -0.1269  -0.0838  -0.1028   0.0457   0.0907  -0.0347  -0.0630  -0.1047
+2021-03-08   0.8803   0.0589   0.4083   0.0851  -0.1579   0.4240  -0.1541   0.1464  -0.0150  -0.0856   0.2250   0.8558  -0.5847  -0.5204  -0.4471
+2021-03-09   0.0266   0.0184   0.4030   0.0848   0.0322   0.3099  -0.1285   0.4932   0.0414  -0.0600   0.3345   0.8937  -0.1388  -0.1715  -0.1800
+2021-03-10  -0.6882   0.0843   0.2396   0.0879  -0.0634   0.5365  -0.1372   0.3431   0.0350  -0.0409   0.2511   0.3282  -0.2392  -0.3070  -0.2805
+2021-03-12   0.6971  -0.0860   0.2592   0.0889   0.6099   0.6266   0.1287   0.4367   0.0810  -0.0159   0.3270   0.8371  -0.2967  -0.4285  -0.3848
+2021-03-15  -0.6874   0.0749  -0.2055   0.0701   0.0731  -0.2523   0.1715   0.1640   0.0660   0.0010   0.2216   0.2424   0.4043   0.0531  -0.0672
+2021-03-16   0.3856  -0.0953  -0.1872  -0.0064  -0.1395  -0.1994  -0.0057   0.1640   0.0820   0.0179   0.2216   0.5393  -0.0749  -0.1615  -0.2557
+2021-03-17  -0.6017  -0.0338  -0.1648   0.0116  -0.4054  -0.2532  -0.0844   0.3913   0.0500   0.0246   0.0911   0.0548   0.0558  -0.1055  -0.1884
+2021-03-18   0.3428  -0.0907  -0.1705  -0.0586   0.0334  -0.0160   0.2078   0.3817   0.0496   0.0299   0.0726   0.2926  -0.1705  -0.2127  -0.3006
+2021-03-19  -0.5598  -0.2235  -0.2266  -0.0422  -0.4998   0.0671   0.1460  -0.4143   0.0084   0.0254  -0.0532  -0.2269  -0.1963  -0.1581  -0.2970
+
+  verify against norm_train: max|x[0,0] - norm_train[COMB cols][0:30]| = 5.786e-08
+
+  whole-tensor stats: [ 1.239513  1.376409  0.776525  0.916167 -1.347953 -0.854224] ...  [min=-4.284818 max=3.839956 mean=-0.188316 std=0.872581]
+
+----------------------------------------------------------------------------------------------------
+STAGE 2 :: VARIABLE SELECTION NETWORK (V-VSN)   [src/models/vsn_lstm.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   x_flat            (10, 30, 15)  = (B*N=10, T=30, F=15)
+          all 10 assets are folded into the batch -> ONE shared VSN, channel-independent
+
+  2a) selection_grn : GatedResidualNetwork(in=15, hidden=64, out=15)
+      flat input                (300, 15)  (B*N*T rows)
+      -> raw selection logits   (300, 15)
+      -> softmax over F         (300, 15)   sums to 1 per (asset,timestep)
+
+      logits  for 'COMB' at t=29: [-1.5551 -0.1969 -0.2893 -0.2915 -1.28    2.0458  1.1429 -1.4884  0.875   1.2754  0.3649 -0.0489 -0.1755  0.2543 -0.6328]
+      WEIGHTS for 'COMB' at t=29:
+        f0  COMB                         input=  -0.5598   weight=0.008469
+        f1  COMB_vol_5d                  input=  -0.2235   weight=0.032938
+        f2  COMB_vol_10d                 input=  -0.2266   weight=0.030029
+        f3  COMB_vol_20d                 input=  -0.0422   weight=0.029963
+        f4  COMB_mom_5d                  input=  -0.4998   weight=0.011150
+        f5  COMB_mom_10d                 input=   0.0671   weight=0.310225
+        f6  COMB_mom_20d                 input=   0.1460   weight=0.125762
+        f7  COMB_rsi                     input=  -0.4143   weight=0.009053
+        f8  COMB_macd                    input=   0.0084   weight=0.096210
+        f9  COMB_macd_signal             input=   0.0254   weight=0.143575
+        f10 COMB_macd_hist               input=  -0.0532   weight=0.057767
+        f11 COMB_bb_pct                  input=  -0.2269   weight=0.038192
+        f12 COMB_vol_ratio_5d            input=  -0.1963   weight=0.033649
+        f13 COMB_vol_ratio_10d           input=  -0.1581   weight=0.051719
+        f14 COMB_vol_ratio_20d           input=  -0.2970   weight=0.021300
+        sum of weights = 1.000000
+        top-3 selected features: _mom_10d=0.3102, _macd_signal=0.1436, _mom_20d=0.1258
+
+  2b) var_proj : Linear(15, 15*64=960, bias=False) then view(.,15,64)
+      -> projected              (300, 15, 64)   (one 64-dim embedding per input variable)
+      projected[COMB t=29, f0, :6] = [-0.30988  0.09203 -0.2482   0.14575  0.09139 -0.06488]
+
+  2c) weighted sum over the F variable embeddings
+      OUTPUT  selected          (10, 30, 64)  = (B*N, T, vsn_hidden=64)
+      var_weights               (10, 30, 15)
+      selected[COMB, t=29] = [-0.02541  -0.026857 -0.106454 -0.028507  0.001975  0.066702 -0.007317 -0.048678] ...  [min=-0.162682 max=0.095806 mean=-0.009519 std=0.053204]
+      manual recomputation matches module: max abs diff = 0.000e+00
+      cross-asset spread of selected[:, -1, :] std over assets = 0.101716  (0 would mean assets are indistinguishable)
+
+----------------------------------------------------------------------------------------------------
+STAGE 3 :: LSTM  (temporal dynamics)   [src/models/vsn_lstm.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   selected          (10, 30, 64)
+  nn.LSTM(input_size=64, hidden_size=128, num_layers=2, batch_first=True, dropout=0.1)
+  init: weight_hh orthogonal per gate block, weight_ih xavier, forget-gate bias = 1.0
+        check bias_ih_l0 forget block [128:256] mean = 1.0000
+
+  OUTPUT  lstm_out          (10, 30, 128)   (B*N, T, lstm_hidden=128)
+          h_n               (2, 10, 128)    (num_layers, B*N, hidden)
+          c_n               (2, 10, 128)
+    lstm_out[COMB, t=29]  = [-0.293047 -0.46382  -0.395537  0.202966  0.411949 -0.268148 -0.195393 -0.502694] ...  [min=-0.694548 max=0.682234 mean=-0.013961 std=0.375902]
+    lstm_out[COMB, t=0]      = [ 0.004766  0.000428  0.000654 -0.000163 -0.002928 -0.004005] ...  [min=-0.005940 max=0.005674 mean=-0.000036 std=0.002507]
+    LayerNorm -> normed[COMB, t=29] = [-0.742416 -1.196704 -1.015058  0.577063  1.132994 -0.676182 -0.482642 -1.300115] ...  [min=-1.810480 max=1.851996 mean=-0.000000 std=0.999965]
+    output_proj Linear(128,128) -> [-1.167846  0.773209 -1.257535  0.116482  0.244217  1.414666 -0.805567 -0.1956  ] ...  [min=-1.626638 max=1.724938 mean=0.026672 std=0.650317]
+    (trainer note: no hidden state is carried between windows -- each window is self-contained)
+
+----------------------------------------------------------------------------------------------------
+STAGE 4 :: TEMPORAL MULTI-HEAD ATTENTION   [src/models/temporal_attention.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   output_proj result  (10, 30, 128)
+  d_model=128, num_heads=4, d_k=32, ffn_dim=256
+
+  4a) positional encoding (sinusoidal, added): pe[0,0,:6] = [0. 1. 0. 1. 0. 1.]
+      x + pe -> (10, 30, 128)
+  4b) Q = W_q(x): (10, 4, 30, 32)  (B*N, heads, T, d_k) ; same for K, V
+      Q[COMB, head0, t=29, :6] = [ 0.438  -0.7399  0.1208  0.4917 -0.3557  0.2912]
+  4c) scores = QK^T/sqrt(d_k) -> (10, 4, 30, 30)
+      scores[COMB, head0, t=29, :8] = [0.4318 0.3994 0.3963 0.3906 0.3617 0.2871 0.2088 0.1629]
+  4d) attn_weights = softmax(scores) -> (10, 4, 30, 30)
+      attention paid by the LAST timestep (2021-03-19) across the 30-day window, head 0:
+        t00=0.0349  t01=0.0338  t02=0.0337  t03=0.0335  t04=0.0325
+        t05=0.0302  t06=0.0279  t07=0.0267  t08=0.0271  t09=0.0290
+        t10=0.0310  t11=0.0314  t12=0.0303  t13=0.0290  t14=0.0290
+        t15=0.0311  t16=0.0347  t17=0.0381  t18=0.0396  t19=0.0387
+        t20=0.0365  t21=0.0348  t22=0.0342  t23=0.0346  t24=0.0355
+        t25=0.0363  t26=0.0368  t27=0.0367  t28=0.0364  t29=0.0360
+      sum=1.000000   argmax=t18 (2021-03-03) weight=0.0396
+  4e) context = attn @ V, concat heads, W_o, +residual, LayerNorm -> (10, 30, 128)
+  4f) FFN Linear(128,256)-GELU-Linear(256,128) + residual + LayerNorm
+      OUTPUT attn_out       (10, 30, 128)
+      attn_out[COMB, t=29] = [-2.731876 -0.879473 -1.882816  1.502412 -0.191896  0.164664 -1.310733  0.208042] ...  [min=-2.731876 max=2.545100 mean=0.000000 std=0.999995]
+      manual MHA sub-block matches module: max abs diff = 0.000e+00
+
+  4g) take LAST timestep only -> per-asset temporal embedding
+      H = (1, 10, 128)  (batch, n_assets, lstm_hidden)
+      H[0,0] ('COMB') = [-2.731876 -0.879473 -1.882816  1.502412 -0.191896  0.164664 -1.310733  0.208042] ...  [min=-2.731876 max=2.545100 mean=0.000000 std=0.999995]
+      H[0,1] ('DFCC') = [-2.593863 -1.149762 -2.078103  1.122458  0.490015 -0.104814] ...  [min=-2.593863 max=2.376979 mean=-0.000000 std=0.999995]
+      cross-asset std (mean over dims) = 0.521636
+
+----------------------------------------------------------------------------------------------------
+STAGE 5 :: MACRO GRAPH PRIOR (GAT)   [src/models/macro_graph_prior.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   H                 (1, 10, 128)  -> 10 graph NODES (one per asset), n_macro=0
+  adjacency: learnable_adj (10, 10), all entries = [0.5] -> sigmoid = 0.6225 > 0
+             build_adjacency() -> adj (10, 10), sum = 100 of 100 -> FULLY CONNECTED graph (every bank linked to every bank)
+  node_proj Linear(128,64) -> (1, 10, 64)
+    h0[0,0] = [ 0.247005  0.38345  -0.208707  0.753394  0.7882    0.2087    0.52512   0.176164] ...  [min=-1.123260 max=1.550282 mean=0.051303 std=0.591786]
+
+  GAT layer 0: in=64 out=64 heads=2 concat=True -> output_dim=128
+    W       (2, 64, 64)   a_src (2, 64, 1)   a_dst (2, 64, 1)
+    e_ij = LeakyReLU(0.2)(a_src.Wh_i + a_dst.Wh_j), masked by adj, softmax over j
+    attention  (1, 2, 10, 10)  (batch, heads, N, N)
+    node 0 ('COMB') attention over its 10 neighbours (head 0):
+      first 8: [0.0991  0.09707 0.09751 0.10224 0.09377 0.09696 0.10078 0.09282]
+      sum=1.000000  self-weight=0.09910  max=node 9 ('ABL') 0.11591  min=0.09282  uniform would be 0.10000
+    after ELU + LayerNorm + residual: h (1, 10, 128)   cross-node std = 0.172490
+
+  GAT layer 1: in=128 out=64 heads=2 concat=False -> output_dim=64
+    W       (2, 128, 64)   a_src (2, 64, 1)   a_dst (2, 64, 1)
+    e_ij = LeakyReLU(0.2)(a_src.Wh_i + a_dst.Wh_j), masked by adj, softmax over j
+    attention  (1, 2, 10, 10)  (batch, heads, N, N)
+    node 0 ('COMB') attention over its 10 neighbours (head 0):
+      first 8: [0.10198 0.09978 0.09801 0.10319 0.09845 0.10414 0.10128 0.09409]
+      sum=1.000000  self-weight=0.10198  max=node 5 ('SEYB') 0.10414  min=0.09409  uniform would be 0.10000
+    after ELU + LayerNorm + residual: h (1, 10, 64)   cross-node std = 0.100612
+
+  OUTPUT  node_embeddings   (1, 10, 64)
+          graph_embedding   (1, 64)  (mean-pool + readout MLP; NOT used downstream in this architecture)
+    node_embeddings[0,0] = [ 0.106449 -0.133845  0.566376 -1.193576  0.770095  0.07636   0.002944 -1.268131] ...  [min=-2.181072 max=2.903449 mean=0.032782 std=1.115458]
+    manual == module: nodes 0.000e+00, graph 0.000e+00
+
+----------------------------------------------------------------------------------------------------
+STAGE 6 :: PER-ASSET FUSION  ->  h_asset ,  MEAN-POOL  ->  h_market
+----------------------------------------------------------------------------------------------------
+  concat[H(128), node_emb(64)] -> fused (1, 10, 192)
+  fusion = Linear(192,128) -> GELU -> Dropout(0.1) -> Linear(128,128) -> LayerNorm
+  OUTPUT  h_asset           (1, 10, 128)   -> goes to the ACTOR
+          h_market          (1, 128)   -> goes to the CRITIC + regime classifierE:\Learning\4th 1st Semester\Research\Regime detection portfolio\src\training\advantage.py:65: UserWarning: std(): degrees of freedom is <= 0. Correction should be strictly less than the reduction factor (input numel divided by output numel). (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\aten\src\ATen\native\ReduceOps.cpp:1879.)
+  return (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+
+    h_asset[0,0] ('COMB')  = [ 0.487672 -0.733765 -0.863841  0.963051  1.647127 -1.638665  1.07541  -1.36519 ] ...  [min=-2.614269 max=2.212811 mean=-0.000000 std=0.999899]
+    h_asset[0,1] ('DFCC') = [ 0.197909 -0.403591 -0.212565  1.09292   1.927574 -1.603949] ...  [min=-2.649847 max=2.559754 mean=-0.000000 std=0.999901]
+    h_market[0]                = [ 0.221575 -0.514599 -0.633151  1.145182  1.547633 -1.652387  0.622146 -1.507292] ...  [min=-2.173332 max=1.920419 mean=0.000000 std=0.905737]
+    cross-asset std of h_asset = 0.426453
+
+----------------------------------------------------------------------------------------------------
+STAGE 7 :: REGIME CLASSIFIER  (Bull / Bear / Sideways, differentiable)
+----------------------------------------------------------------------------------------------------
+  INPUT   h_market          (1, 128)
+  Linear(128,64) -> GELU -> Dropout -> Linear(64,3)
+  learnable regime_temperature = 1.000000 (clamped min 0.1)
+  OUTPUT  regime_logits     (1, 3) = [-0.273977  0.335684 -0.247233]
+          regime_probs      = softmax(logits/T) = [0.258604 0.475782 0.265614]   sum=1.000000
+          -> regime 1 (Bear) with p=0.4758
+          entropy = 1.055287 (max possible ln3=1.0986)
+
+----------------------------------------------------------------------------------------------------
+STAGE 8 :: ACTOR (policy pi)   [src/models/actor.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   h_asset (1, 10, 128) + regime_probs (1, 3)
+  trunk (SHARED across assets, applied on last dim):
+    Linear(128,256)+LayerNorm+ReLU+Dropout -> Linear(256,128)+LayerNorm+ReLU+Dropout
+    -> features (1, 10, 128)
+  regime_embed Linear(3,128) -> (1, 128), broadcast-added to every asset
+    regime_signal[0,:6] = [ 0.000841 -0.000854  0.000672 -0.000538 -0.001172 -0.000059]
+  mean_head Linear(128,1) -> one logit per asset (1, 10)
+  mean = logit_scale*tanh(raw/logit_scale), logit_scale=5.0
+    raw_head[0,:8] = [0.008081 0.008227 0.009281 0.001816 0.003091 0.001765 0.005769 0.006428]
+    mean[0]      = [0.008081 0.008227 0.009281 0.001816 0.003091 0.001765 0.005769 0.006428] ...  [min=0.001765 max=0.009281 mean=0.005539 std=0.002574]
+  log_std (learnable, (10,)) = [-0.5 -0.5 -0.5 -0.5 -0.5] ...  [min=-0.500000 max=-0.500000 mean=-0.500000 std=0.000000]  -> std = 0.606531
+
+  a) Gaussian policy N(mean, std) per asset, sample via rsample()
+     raw_action (1, 10) = [ 0.212294  0.086354  0.151489  0.14152  -0.677956 -0.111249  1.345111 -0.380537] ...  [min=-0.677956 max=1.345111 mean=0.122012 std=0.498201]
+     log_prob   = sum_i log N(a_i; mu_i, sigma_i) = -7.740035
+     entropy    = sum_i 0.5*log(2*pi*e*sigma_i^2) = 9.189385
+     manual entropy check: 9.189385
+  b) squash to allocation: allow_short=False -> SOFTMAX over 10 assets
+     action (portfolio weights) = [0.094538 0.083352 0.088961 0.088079 0.038813 0.068406 0.293484 0.052257] ...  [min=0.038813 max=0.293484 mean=0.100000 std=0.067172]
+     sum=1.000000  max=0.293484 (asset 6 = UBC)
+     equal weight would be 1/10 = 0.100000
+
+----------------------------------------------------------------------------------------------------
+STAGE 9 :: CRITIC (value V)   [src/models/critic.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   h_market (1, 128) + regime_probs (1, 3)
+  Linear(128,256)+LN+ReLU+Drop -> Linear(256,128)+LN+ReLU+Drop -> +regime_embed(3->128) -> Linear(128,1)
+    critic features[0,:6] = [0.      0.      0.      0.90129 0.      0.     ]
+  OUTPUT  V(s) = 0.156049
+
+  cross-check vs agent.forward(): |action|=0.000e+00 |value|=0.000e+00 |log_prob|=0.000e+00 |regime|=0.000e+00
+
+----------------------------------------------------------------------------------------------------
+STAGE 10 :: MARKET ENVIRONMENT STEP  (real prices, real costs)
+----------------------------------------------------------------------------------------------------
+  action in                 (10,)  [0.094538 0.083352 0.088961 0.088079 0.038813 0.068406] ...  [min=0.038813 max=0.293484 mean=0.100000 std=0.067172]
+  _clip_weights: clip to +/-0.3 then renormalise (long-only, sum->1)
+    n weights above cap = 0   clipped sum = 1.000000 -> divide by it
+    new_weights = [0.094538 0.083352 0.088961 0.088079 0.038813 0.068406] ...  [min=0.038813 max=0.293484 mean=0.100000 std=0.067172]
+  turnover = sum|w_new - w_old| = 1.000000   (w_old sum = 0.0000)
+  transaction cost = 0.001 * turnover * PV = 1,000.00 LKR
+  slippage         = 0.0005 * turnover * PV = 500.00 LKR      total = 1,500.00 LKR
+
+  REAL PRICES used for the return:
+      P(2021-03-19)  P(2021-03-22)  simple return       weight  contribution
+COMB      79.300000      80.300000       0.012610     0.094538      0.001192
+DFCC      57.700000      58.000000       0.005199     0.083352      0.000433
+HNB      100.000000     100.000000       0.000000     0.088961      0.000000
+NDB       80.000000      80.200000       0.002500     0.088079      0.000220
+PABC      15.000000      14.800000      -0.013333     0.038813     -0.000518
+SEYB      43.000000      43.000000       0.000000     0.068406      0.000000
+UBC       10.200000      10.200000       0.000000     0.293484      0.000000
+NTB       53.100000      53.800000       0.013183     0.052257      0.000689
+  ... 10 assets total.  asset_returns: [ 0.01261   0.005199  0.        0.0025   -0.013333  0.      ] ...  [min=-0.013333 max=0.013183 mean=0.002016 std=0.007094]
+
+  portfolio_return = w . r = 0.00201711  (0.2017 %)
+  portfolio_value  = 1,000,000.00 * (1 + 0.002017) - 1,500.00 = 1,000,517.11 LKR
+  done = False   (env.n_steps=541, current_step now 1)
+
+----------------------------------------------------------------------------------------------------
+STAGE 11 :: REWARD CALCULATION   [src/environment/reward.py]
+----------------------------------------------------------------------------------------------------
+  Net reward = rolling Sharpe  +  EVaR penalty  +  cost penalty
+  buffer length before this step = 0
+  daily_rf = (1+0.06)^(1/252)-1 = 0.00023125
+  return buffer (n=1) = [0.002017]
+    only 1 observation -> Sharpe component falls back to the raw return
+  EVaR penalty: needs >= sharpe_window(20) observations -> INACTIVE (0.0) at this stage
+  cost penalty = -(tc_rate*turnover + turnover_penalty*turnover^2)
+               = -(0.001*1.000000 + 0.001*1.000000^2) = -0.00200000
+
+  COMPONENTS: sharpe=0.002017  evar=0.000000  cost=-0.002000
+  NET REWARD r_0 = 0.000017
+
+----------------------------------------------------------------------------------------------------
+STAGE 12 :: BACKPROPAGATION + PARAMETER UPDATE (PPO, joint end-to-end)
+----------------------------------------------------------------------------------------------------
+  NOTE: the real trainer buffers rollout_length=256 steps before updating.
+        Here we update after EVERY window (batch of 1) as requested, using the same
+        RewardNormalizer / compute_gae / PPO-loss code paths.
+
+  12a) RewardNormalizer: discounted acc = 0.000017, running std = 0.010000 (count=1.0001)
+       scaled reward = 0.000017 / 0.010000 = 0.001711
+
+  12b) GAE(gamma=0.99, lambda=0.95) on T=1
+       V(s_t)=0.156049   V(s_t+1)=0.185109   done=0.0
+       delta = r + gamma*V(s_t+1)*(1-done) - V(s_t) = 0.001711 + 0.99*0.185109 - 0.156049 = 0.028919
+       advantage = 0.028919   return (target for critic) = 0.184969
+       trainer then calls normalize_advantages() -> nan
+       *** with a single sample, (adv-adv.mean())/(adv.std()+1e-8) is 0/nan because torch's
+       std uses ddof=1 -> undefined for n=1. We therefore keep the RAW advantage for this
+       1-step demo so the policy term is visible. (With rollout_length=256 as the real
+       trainer uses, the normalisation is well defined.)
+
+  12c) PPO epochs (n_epochs=10), agent.train() -> dropout active
+
+    --- epoch 1 in full detail ---
+    evaluate_actions() re-encodes the SAME window with dropout on:
+      old log_prob (stored) = -7.740035
+      new log_prob          = -7.778353
+      ratio = exp(new-old)  = 0.962406
+      advantage             = 0.028919
+      surr1 = ratio*A       = 0.027832
+      surr2 = clip(ratio,0.8,1.2)*A = 0.027832
+      policy_loss = -min(surr1,surr2) = -0.027832
+      V_new = -0.448555, target return = 0.184969 -> value_loss = 0.401352
+      entropy = 9.189385 -> entropy_loss = -9.189385
+      total = -0.027832 + 0.5*0.401352 + 0.01*-9.189385 = 0.080950
+    backward() gradient norms per component:
+      regime_encoder   ||g|| = 4.237219e+01
+      actor            ||g|| = 8.775296e-01
+      critic           ||g|| = 1.367752e+01
+      TOTAL ||g|| = 4.453366e+01  -> clip_grad_norm_(max=0.5) returned 4.453365e+01  (CLIPPED, scale=0.0112)
+    learning rates at this step: encoder=0.000e+00 actor=0.000e+00 critic=0.000e+00
+      (LambdaLR linear warmup over 1000 steps; scheduler step counter is now 1)
+    epoch  2: loss= -0.08866 (pi=-0.02918 V=  0.06483 H= -9.1894) ratio=1.00903 ||g||=1.5964e+01 lr_actor=3.000e-07
+    epoch  3: loss=  0.01087 (pi=-0.02857 V=  0.26268 H= -9.1894) ratio=0.98793 ||g||=3.6487e+01 lr_actor=6.000e-07
+    epoch  4: loss= -0.10136 (pi=-0.02880 V=  0.03868 H= -9.1894) ratio=0.99600 ||g||=1.2090e+01 lr_actor=9.000e-07
+    epoch  5: loss= -0.07851 (pi=-0.02849 V=  0.08376 H= -9.1894) ratio=0.98514 ||g||=2.1303e+01 lr_actor=1.200e-06
+    epoch  6: loss= -0.12059 (pi=-0.02887 V=  0.00036 H= -9.1894) ratio=0.99841 ||g||=1.5259e+00 lr_actor=1.500e-06
+    epoch  7: loss= -0.11776 (pi=-0.02920 V=  0.00666 H= -9.1894) ratio=1.00955 ||g||=4.0883e+00 lr_actor=1.800e-06
+    epoch  8: loss= -0.11410 (pi=-0.02800 V=  0.01159 H= -9.1894) ratio=0.96813 ||g||=6.2197e+00 lr_actor=2.100e-06
+    epoch  9: loss= -0.00021 (pi=-0.02857 V=  0.24050 H= -9.1893) ratio=0.98782 ||g||=3.3303e+01 lr_actor=2.400e-06
+    epoch 10: loss= -0.09915 (pi=-0.02891 V=  0.04330 H= -9.1893) ratio=0.99965 ||g||=1.3550e+01 lr_actor=2.700e-06
+
+  12d) PARAMETER CHANGE after 10 epochs on window 1
+    parameter                                      ||before||    ||delta||   max|delta|
+    encoder.vsn.selection_grn.fc1.weight             4.730957 1.077862e-04 6.109476e-06
+    encoder.vsn.var_proj.weight                     17.885433 3.853263e-04 6.496906e-06
+    encoder.lstm.weight_ih_l0                       10.617679 6.027658e-04 6.671995e-06
+    encoder.mha.W_q.weight                           6.515903 3.983249e-04 6.355345e-06
+    encoder.macro_graph.learnable_adj                5.000000 0.000000e+00 0.000000e+00
+    encoder.macro_graph.gat0.W                       1.960990 2.918662e-04 6.429851e-06
+    encoder.fusion.0.weight                          6.538762 4.706387e-04 6.034970e-06
+    encoder.regime_temperature                       1.000000 3.933907e-06 3.933907e-06
+    actor.mean_head.weight                           0.010000 8.211155e-05 1.123405e-05
+    actor.log_std                                    1.581139 3.134595e-05 1.001358e-05
+    critic.value_head.weight                         1.000000 7.619504e-05 1.048297e-05
+    regime_temperature: 1.00000000 -> 1.00000393
+    actor.log_std[0]:   -0.50000000 -> -0.50000995
+
+  12e) same window re-run through the TUNED model (deterministic):
+    V(s) before update = 0.156049   after = 0.206001   (target was 0.184969)
+    regime_probs before = [0.258604 0.475782 0.265614]   after = [0.2594   0.475282 0.265318]
+    weights max before = 0.293484  after = 0.100370
+
+####################################################################################################
+WINDOW 2 / 5   |   env.current_step = 1   |   window 2021-02-05 -> 2021-03-22   |   reward over 2021-03-22 -> 2021-03-23
+####################################################################################################
+
+----------------------------------------------------------------------------------------------------
+STAGE 1 :: OBSERVATION TENSOR  (env -> agent)
+----------------------------------------------------------------------------------------------------
+  obs['features']            (30, 150)      (window_size=30, n_features=150)
+  after .unsqueeze(0)        (1, 30, 150)  (batch, T, N*F)
+  encoder reshape+permute -> (1, 10, 30, 15)  (batch, n_assets, T, F_per_asset)
+     view(B,T,N,F) then permute(0,2,1,3): column (asset i, feature j) of the flat
+     150-vector lands at x[0, i, :, j] -- this is why reorder_per_asset() is required.
+
+  the window SLID one trading day: row 2021-02-03 dropped off the front,
+  row 2021-03-22 entered at the back. Last 3 rows of x[0,0] ('COMB'):
+                 f0       f1       f2       f3       f4       f5       f6       f7       f8       f9      f10      f11      f12      f13      f14
+2021-03-18   0.3428  -0.0907  -0.1705  -0.0586   0.0334  -0.0160   0.2078   0.3817   0.0496   0.0299   0.0726   0.2926  -0.1705  -0.2127  -0.3006
+2021-03-19  -0.5598  -0.2235  -0.2266  -0.0422  -0.4998   0.0671   0.1460  -0.4143   0.0084   0.0254  -0.0532  -0.2269  -0.1963  -0.1581  -0.2970
+2021-03-22   0.4347  -0.2347  -0.2394  -0.0365  -0.0247   0.0381   0.1801  -0.3330   0.0078   0.0217  -0.0434   0.1247  -0.8089  -0.6616  -0.6087
+  (the other 29 rows are identical to window 1 -- 29/30 of the input is shared,
+   which is why consecutive decisions are highly correlated)
+
+  verify against norm_train: max|x[0,0] - norm_train[COMB cols][1:31]| = 5.786e-08
+
+  whole-tensor stats: [-0.061838  1.362259  0.731805  0.917492 -0.922624 -1.009381] ...  [min=-4.284818 max=3.839956 mean=-0.211065 std=0.851382]
+
+----------------------------------------------------------------------------------------------------
+STAGE 2 :: VARIABLE SELECTION NETWORK (V-VSN)   [src/models/vsn_lstm.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   x_flat            (10, 30, 15)  = (B*N=10, T=30, F=15)
+          all 10 assets are folded into the batch -> ONE shared VSN, channel-independent
+
+  2a) selection_grn : GatedResidualNetwork(in=15, hidden=64, out=15)
+      flat input                (300, 15)  (B*N*T rows)
+      -> raw selection logits   (300, 15)
+      -> softmax over F         (300, 15)   sums to 1 per (asset,timestep)
+
+      logits  for 'COMB' at t=29: [ 2.1291 -0.1858 -0.3366 -0.1175  0.4483  0.816   0.5153 -0.5921  0.1619  0.5561  0.0699  1.0677 -2.0836 -1.1945 -1.2542]
+      WEIGHTS for 'COMB' at t=29:
+        f0  COMB                         input=   0.4347   weight=0.343023
+        f1  COMB_vol_5d                  input=  -0.2347   weight=0.033885
+        f2  COMB_vol_10d                 input=  -0.2394   weight=0.029141
+        f3  COMB_vol_20d                 input=  -0.0365   weight=0.036278
+        f4  COMB_mom_5d                  input=  -0.0247   weight=0.063884
+        f5  COMB_mom_10d                 input=   0.0381   weight=0.092269
+        f6  COMB_mom_20d                 input=   0.1801   weight=0.068309
+        f7  COMB_rsi                     input=  -0.3330   weight=0.022570
+        f8  COMB_macd                    input=   0.0078   weight=0.047974
+        f9  COMB_macd_signal             input=   0.0217   weight=0.071157
+        f10 COMB_macd_hist               input=  -0.0434   weight=0.043757
+        f11 COMB_bb_pct                  input=   0.1247   weight=0.118676
+        f12 COMB_vol_ratio_5d            input=  -0.8089   weight=0.005079
+        f13 COMB_vol_ratio_10d           input=  -0.6616   weight=0.012358
+        f14 COMB_vol_ratio_20d           input=  -0.6087   weight=0.011641
+        sum of weights = 1.000000
+        top-3 selected features: <log-return>=0.3430, _bb_pct=0.1187, _mom_10d=0.0923
+
+  2b) var_proj : Linear(15, 15*64=960, bias=False) then view(.,15,64)
+      -> projected              (300, 15, 64)   (one 64-dim embedding per input variable)
+      projected[COMB t=29, f0, :6] = [-0.2877   0.2137  -0.29509 -0.06733  0.21016  0.06108]
+
+  2c) weighted sum over the F variable embeddings
+      OUTPUT  selected          (10, 30, 64)  = (B*N, T, vsn_hidden=64)
+      var_weights               (10, 30, 15)
+      selected[COMB, t=29] = [-0.151692  0.101194 -0.128808 -0.062981  0.103502  0.085576  0.122421  0.130177] ...  [min=-0.188553 max=0.183765 mean=0.022520 std=0.093357]
+      manual recomputation matches module: max abs diff = 0.000e+00
+      cross-asset spread of selected[:, -1, :] std over assets = 0.122992  (0 would mean assets are indistinguishable)
+
+----------------------------------------------------------------------------------------------------
+STAGE 3 :: LSTM  (temporal dynamics)   [src/models/vsn_lstm.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   selected          (10, 30, 64)
+  nn.LSTM(input_size=64, hidden_size=128, num_layers=2, batch_first=True, dropout=0.1)
+  init: weight_hh orthogonal per gate block, weight_ih xavier, forget-gate bias = 1.0
+        check bias_ih_l0 forget block [128:256] mean = 1.0000
+
+  OUTPUT  lstm_out          (10, 30, 128)   (B*N, T, lstm_hidden=128)
+          h_n               (2, 10, 128)    (num_layers, B*N, hidden)
+          c_n               (2, 10, 128)
+    lstm_out[COMB, t=29]  = [-0.283448 -0.448291 -0.371763  0.163464  0.432347 -0.251922 -0.185404 -0.497475] ...  [min=-0.689029 max=0.696016 mean=-0.003129 std=0.371463]
+    lstm_out[COMB, t=0]      = [ 0.003773  0.000377  0.001254  0.00209  -0.004115 -0.003486] ...  [min=-0.006580 max=0.006405 mean=-0.000156 std=0.002366]
+    LayerNorm -> normed[COMB, t=29] = [-0.754617 -1.198355 -0.99235   0.448454  1.172295 -0.669736 -0.490684 -1.330751] ...  [min=-1.846416 max=1.882060 mean=-0.000001 std=0.999964]
+    output_proj Linear(128,128) -> [-1.163565  0.712465 -1.264774  0.282105  0.155519  1.415919 -0.710636 -0.312822] ...  [min=-1.574354 max=1.831191 mean=0.028068 std=0.658042]
+    (trainer note: no hidden state is carried between windows -- each window is self-contained)
+
+----------------------------------------------------------------------------------------------------
+STAGE 4 :: TEMPORAL MULTI-HEAD ATTENTION   [src/models/temporal_attention.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   output_proj result  (10, 30, 128)
+  d_model=128, num_heads=4, d_k=32, ffn_dim=256
+
+  4a) positional encoding (sinusoidal, added): pe[0,0,:6] = [0. 1. 0. 1. 0. 1.]
+      x + pe -> (10, 30, 128)
+  4b) Q = W_q(x): (10, 4, 30, 32)  (B*N, heads, T, d_k) ; same for K, V
+      Q[COMB, head0, t=29, :6] = [ 0.4908 -0.8089  0.1547  0.4946 -0.3553  0.2541]
+  4c) scores = QK^T/sqrt(d_k) -> (10, 4, 30, 30)
+      scores[COMB, head0, t=29, :8] = [0.3104 0.2838 0.3052 0.3492 0.3506 0.3092 0.2345 0.1867]
+  4d) attn_weights = softmax(scores) -> (10, 4, 30, 30)
+      attention paid by the LAST timestep (2021-03-22) across the 30-day window, head 0:
+        t00=0.0314  t01=0.0306  t02=0.0313  t03=0.0327  t04=0.0327
+        t05=0.0314  t06=0.0291  t07=0.0278  t08=0.0283  t09=0.0305
+        t10=0.0326  t11=0.0331  t12=0.0317  t13=0.0300  t14=0.0297
+        t15=0.0315  t16=0.0349  t17=0.0381  t18=0.0396  t19=0.0386
+        t20=0.0364  t21=0.0346  t22=0.0340  t23=0.0343  t24=0.0351
+        t25=0.0359  t26=0.0363  t27=0.0363  t28=0.0360  t29=0.0356
+      sum=1.000000   argmax=t18 (2021-03-04) weight=0.0396
+  4e) context = attn @ V, concat heads, W_o, +residual, LayerNorm -> (10, 30, 128)
+  4f) FFN Linear(128,256)-GELU-Linear(256,128) + residual + LayerNorm
+      OUTPUT attn_out       (10, 30, 128)
+      attn_out[COMB, t=29] = [-2.669325 -0.824928 -1.895038  1.669827 -0.254941  0.177532 -1.200682  0.036483] ...  [min=-2.669325 max=2.721802 mean=0.000001 std=0.999995]
+      manual MHA sub-block matches module: max abs diff = 0.000e+00
+
+  4g) take LAST timestep only -> per-asset temporal embedding
+      H = (1, 10, 128)  (batch, n_assets, lstm_hidden)
+      H[0,0] ('COMB') = [-2.669325 -0.824928 -1.895038  1.669827 -0.254941  0.177532 -1.200682  0.036483] ...  [min=-2.669325 max=2.721802 mean=0.000001 std=0.999995]
+      H[0,1] ('DFCC') = [-2.535728 -1.168038 -1.976664  1.284762  0.430454  0.130066] ...  [min=-2.644364 max=2.288951 mean=0.000001 std=0.999994]
+      cross-asset std (mean over dims) = 0.510308
+
+----------------------------------------------------------------------------------------------------
+STAGE 5 :: MACRO GRAPH PRIOR (GAT)   [src/models/macro_graph_prior.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   H                 (1, 10, 128)  -> 10 graph NODES (one per asset), n_macro=0
+  adjacency: learnable_adj (10, 10), all entries = [0.5] -> sigmoid = 0.6225 > 0
+             build_adjacency() -> adj (10, 10), sum = 100 of 100 -> FULLY CONNECTED graph (every bank linked to every bank)
+  node_proj Linear(128,64) -> (1, 10, 64)
+    h0[0,0] = [ 0.233991  0.370546 -0.183768  0.823959  0.768869  0.136087  0.577832  0.29518 ] ...  [min=-1.067950 max=1.498067 mean=0.067814 std=0.582240]
+
+  GAT layer 0: in=64 out=64 heads=2 concat=True -> output_dim=128
+    W       (2, 64, 64)   a_src (2, 64, 1)   a_dst (2, 64, 1)
+    e_ij = LeakyReLU(0.2)(a_src.Wh_i + a_dst.Wh_j), masked by adj, softmax over j
+    attention  (1, 2, 10, 10)  (batch, heads, N, N)
+    node 0 ('COMB') attention over its 10 neighbours (head 0):
+      first 8: [0.09802 0.09611 0.097   0.10138 0.09428 0.09781 0.1033  0.09346]
+      sum=1.000000  self-weight=0.09802  max=node 9 ('ABL') 0.11542  min=0.09346  uniform would be 0.10000
+    after ELU + LayerNorm + residual: h (1, 10, 128)   cross-node std = 0.168302
+
+  GAT layer 1: in=128 out=64 heads=2 concat=False -> output_dim=64
+    W       (2, 128, 64)   a_src (2, 64, 1)   a_dst (2, 64, 1)
+    e_ij = LeakyReLU(0.2)(a_src.Wh_i + a_dst.Wh_j), masked by adj, softmax over j
+    attention  (1, 2, 10, 10)  (batch, heads, N, N)
+    node 0 ('COMB') attention over its 10 neighbours (head 0):
+      first 8: [0.10211 0.09876 0.09788 0.10231 0.09729 0.10504 0.10056 0.09358]
+      sum=1.000000  self-weight=0.10211  max=node 8 ('SAMP') 0.10643  min=0.09358  uniform would be 0.10000
+    after ELU + LayerNorm + residual: h (1, 10, 64)   cross-node std = 0.098065
+
+  OUTPUT  node_embeddings   (1, 10, 64)
+          graph_embedding   (1, 64)  (mean-pool + readout MLP; NOT used downstream in this architecture)
+    node_embeddings[0,0] = [ 0.186365 -0.062708  0.363506 -1.192735  0.829457  0.119876  0.104094 -1.367826] ...  [min=-2.190338 max=2.946897 mean=0.036073 std=1.116201]
+    manual == module: nodes 0.000e+00, graph 0.000e+00
+
+----------------------------------------------------------------------------------------------------
+STAGE 6 :: PER-ASSET FUSION  ->  h_asset ,  MEAN-POOL  ->  h_market
+----------------------------------------------------------------------------------------------------
+  concat[H(128), node_emb(64)] -> fused (1, 10, 192)
+  fusion = Linear(192,128) -> GELU -> Dropout(0.1) -> Linear(128,128) -> LayerNorm
+  OUTPUT  h_asset           (1, 10, 128)   -> goes to the ACTOR
+          h_market          (1, 128)   -> goes to the CRITIC + regime classifier
+    h_asset[0,0] ('COMB')  = [ 0.579393 -0.785806 -0.713466  0.795379  1.645517 -1.668012  1.058314 -1.306809] ...  [min=-2.670137 max=2.304543 mean=-0.000000 std=0.999899]
+    h_asset[0,1] ('DFCC') = [ 0.201406 -0.437781 -0.007458  0.906     1.830218 -1.552137] ...  [min=-2.666932 max=2.528342 mean=-0.000000 std=0.999902]
+    h_market[0]                = [ 0.253603 -0.5568   -0.507334  0.929966  1.4559   -1.587464  0.667698 -1.497932] ...  [min=-2.218107 max=1.933176 mean=-0.000000 std=0.910518]
+    cross-asset std of h_asset = 0.415579
+
+----------------------------------------------------------------------------------------------------
+STAGE 7 :: REGIME CLASSIFIER  (Bull / Bear / Sideways, differentiable)
+----------------------------------------------------------------------------------------------------
+  INPUT   h_market          (1, 128)
+  Linear(128,64) -> GELU -> Dropout -> Linear(64,3)
+  learnable regime_temperature = 1.000004 (clamped min 0.1)
+  OUTPUT  regime_logits     (1, 3) = [-0.286963  0.336697 -0.280727]
+          regime_probs      = softmax(logits/T) = [0.258265 0.481855 0.25988 ]   sum=1.000000
+          -> regime 1 (Bear) with p=0.4819
+          entropy = 1.051637 (max possible ln3=1.0986)E:\Learning\4th 1st Semester\Research\Regime detection portfolio\src\training\advantage.py:65: UserWarning: std(): degrees of freedom is <= 0. Correction should be strictly less than the reduction factor (input numel divided by output numel). (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\aten\src\ATen\native\ReduceOps.cpp:1879.)
+  return (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+
+
+----------------------------------------------------------------------------------------------------
+STAGE 8 :: ACTOR (policy pi)   [src/models/actor.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   h_asset (1, 10, 128) + regime_probs (1, 3)
+  trunk (SHARED across assets, applied on last dim):
+    Linear(128,256)+LayerNorm+ReLU+Dropout -> Linear(256,128)+LayerNorm+ReLU+Dropout
+    -> features (1, 10, 128)
+  regime_embed Linear(3,128) -> (1, 128), broadcast-added to every asset
+    regime_signal[0,:6] = [ 0.000838 -0.00083   0.000648 -0.00052  -0.001158 -0.000038]
+  mean_head Linear(128,1) -> one logit per asset (1, 10)
+  mean = logit_scale*tanh(raw/logit_scale), logit_scale=5.0
+    raw_head[0,:8] = [0.008097 0.00823  0.008724 0.003056 0.003573 0.002443 0.00596  0.00555 ]
+    mean[0]      = [0.008097 0.00823  0.008724 0.003056 0.003573 0.002443 0.00596  0.00555 ] ...  [min=0.002443 max=0.008724 mean=0.005717 std=0.002206]
+  log_std (learnable, (10,)) = [-0.50001 -0.50001 -0.50001 -0.50001 -0.49999] ...  [min=-0.500010 max=-0.499990 mean=-0.500006 std=0.000008]  -> std = 0.606525
+
+  a) Gaussian policy N(mean, std) per asset, sample via rsample()
+     raw_action (1, 10) = [-0.385175 -0.41988   0.398851  0.899984  0.726474 -0.085271  0.299958  0.425328] ...  [min=-0.840654 max=0.899984 mean=0.148933 std=0.529636]
+     log_prob   = sum_i log N(a_i; mu_i, sigma_i) = -8.287219
+     entropy    = sum_i 0.5*log(2*pi*e*sigma_i^2) = 9.189325
+     manual entropy check: 9.189286
+  b) squash to allocation: allow_short=False -> SOFTMAX over 10 assets
+     action (portfolio weights) = [0.051603 0.049843 0.113024 0.186556 0.156839 0.06965  0.102382 0.116056] ...  [min=0.032724 max=0.186556 mean=0.100000 std=0.046814]
+     sum=1.000000  max=0.186556 (asset 3 = NDB)
+     equal weight would be 1/10 = 0.100000
+
+----------------------------------------------------------------------------------------------------
+STAGE 9 :: CRITIC (value V)   [src/models/critic.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   h_market (1, 128) + regime_probs (1, 3)
+  Linear(128,256)+LN+ReLU+Drop -> Linear(256,128)+LN+ReLU+Drop -> +regime_embed(3->128) -> Linear(128,1)
+    critic features[0,:6] = [0.       0.       0.       0.941455 0.       0.      ]
+  OUTPUT  V(s) = 0.242913
+
+  cross-check vs agent.forward(): |action|=0.000e+00 |value|=0.000e+00 |log_prob|=0.000e+00 |regime|=0.000e+00
+
+----------------------------------------------------------------------------------------------------
+STAGE 10 :: MARKET ENVIRONMENT STEP  (real prices, real costs)
+----------------------------------------------------------------------------------------------------
+  action in                 (10,)  [0.051603 0.049843 0.113024 0.186556 0.156839 0.06965 ] ...  [min=0.032724 max=0.186556 mean=0.100000 std=0.046814]
+  _clip_weights: clip to +/-0.3 then renormalise (long-only, sum->1)
+    n weights above cap = 0   clipped sum = 1.000000 -> divide by it
+    new_weights = [0.051603 0.049843 0.113024 0.186556 0.15684  0.06965 ] ...  [min=0.032724 max=0.186556 mean=0.100000 std=0.046814]
+  turnover = sum|w_new - w_old| = 0.672806   (w_old sum = 1.0000)
+  transaction cost = 0.001 * turnover * PV = 673.15 LKR
+  slippage         = 0.0005 * turnover * PV = 336.58 LKR      total = 1,009.73 LKR
+
+  REAL PRICES used for the return:
+      P(2021-03-22)  P(2021-03-23)  simple return       weight  contribution
+COMB      80.300000      80.400000       0.001245     0.051603      0.000064
+DFCC      58.000000      59.500000       0.025862     0.049843      0.001289
+HNB      100.000000     100.000000       0.000000     0.113024      0.000000
+NDB       80.200000      80.000000      -0.002494     0.186556     -0.000465
+PABC      14.800000      14.400000      -0.027027     0.156840     -0.004239
+SEYB      43.000000      43.300000       0.006977     0.069650      0.000486
+UBC       10.200000      10.200000       0.000000     0.102382      0.000000
+NTB       53.800000      53.800000       0.000000     0.116056      0.000000
+  ... 10 assets total.  asset_returns: [ 0.001245  0.025862  0.       -0.002494 -0.027027  0.006977] ...  [min=-0.666126 max=0.025862 mean=-0.066156 std=0.200353]
+
+  portfolio_return = w . r = -0.02466293  (-2.4663 %)
+  portfolio_value  = 1,000,517.11 * (1 + -0.024663) - 1,009.73 = 974,831.70 LKR
+  done = False   (env.n_steps=541, current_step now 2)
+
+----------------------------------------------------------------------------------------------------
+STAGE 11 :: REWARD CALCULATION   [src/environment/reward.py]
+----------------------------------------------------------------------------------------------------
+  Net reward = rolling Sharpe  +  EVaR penalty  +  cost penalty
+  buffer length before this step = 1
+  daily_rf = (1+0.06)^(1/252)-1 = 0.00023125
+  return buffer (n=2) = [ 0.002017 -0.024663]
+    excess = r - daily_rf ; mean=-0.01155416  std=0.01334002
+    Sharpe = mean/std*sqrt(252) = -13.749353
+  EVaR penalty: needs >= sharpe_window(20) observations -> INACTIVE (0.0) at this stage
+  cost penalty = -(tc_rate*turnover + turnover_penalty*turnover^2)
+               = -(0.001*0.672805 + 0.001*0.672805^2) = -0.00112547
+
+  COMPONENTS: sharpe=-13.749353  evar=0.000000  cost=-0.001125
+  NET REWARD r_1 = -13.750478
+
+----------------------------------------------------------------------------------------------------
+STAGE 12 :: BACKPROPAGATION + PARAMETER UPDATE (PPO, joint end-to-end)
+----------------------------------------------------------------------------------------------------
+  NOTE: the real trainer buffers rollout_length=256 steps before updating.
+        Here we update after EVERY window (batch of 1) as requested, using the same
+        RewardNormalizer / compute_gae / PPO-loss code paths.
+
+  12a) RewardNormalizer: discounted acc = -13.750478, running std = 6.875251 (count=2.0001)
+       scaled reward = -13.750478 / 6.875251 = -1.999996
+
+  12b) GAE(gamma=0.99, lambda=0.95) on T=1
+       V(s_t)=0.242913   V(s_t+1)=0.267104   done=0.0
+       delta = r + gamma*V(s_t+1)*(1-done) - V(s_t) = -1.999996 + 0.99*0.267104 - 0.242913 = -1.978477
+       advantage = -1.978477   return (target for critic) = -1.735563
+       trainer then calls normalize_advantages() -> nan
+       *** with a single sample, (adv-adv.mean())/(adv.std()+1e-8) is 0/nan because torch's
+       std uses ddof=1 -> undefined for n=1. We therefore keep the RAW advantage for this
+       1-step demo so the policy term is visible. (With rollout_length=256 as the real
+       trainer uses, the normalisation is well defined.)
+
+  12c) PPO epochs (n_epochs=10), agent.train() -> dropout active
+
+    --- epoch 1 in full detail ---
+    evaluate_actions() re-encodes the SAME window with dropout on:
+      old log_prob (stored) = -8.287219
+      new log_prob          = -8.278461
+      ratio = exp(new-old)  = 1.008797
+      advantage             = -1.978477
+      surr1 = ratio*A       = -1.995881
+      surr2 = clip(ratio,0.8,1.2)*A = -1.995881
+      policy_loss = -min(surr1,surr2) = 1.995881
+      V_new = -0.338073, target return = -1.735563 -> value_loss = 1.952979
+      entropy = 9.189325 -> entropy_loss = -9.189325
+      total = 1.995881 + 0.5*1.952979 + 0.01*-9.189325 = 2.880478
+    backward() gradient norms per component:
+      regime_encoder   ||g|| = 7.994725e+01
+      actor            ||g|| = 6.655271e+01
+      critic           ||g|| = 2.650620e+01
+      TOTAL ||g|| = 1.073471e+02  -> clip_grad_norm_(max=0.5) returned 1.073471e+02  (CLIPPED, scale=0.0047)
+    learning rates at this step: encoder=1.500e-06 actor=3.000e-06 critic=3.000e-06
+      (LambdaLR linear warmup over 1000 steps; scheduler step counter is now 11)
+    epoch  2: loss=  3.60162 (pi= 1.89748 V=  3.59207 H= -9.1893) ratio=0.95906 ||g||=1.1192e+02 lr_actor=3.300e-06
+    epoch  3: loss=  3.64441 (pi= 2.01393 V=  3.44473 H= -9.1893) ratio=1.01792 ||g||=1.3106e+02 lr_actor=3.600e-06
+    epoch  4: loss=  3.91699 (pi= 1.97547 V=  4.06682 H= -9.1893) ratio=0.99848 ||g||=1.5585e+02 lr_actor=3.900e-06
+    epoch  5: loss=  3.47146 (pi= 2.04568 V=  3.03535 H= -9.1893) ratio=1.03397 ||g||=1.3147e+02 lr_actor=4.200e-06
+    epoch  6: loss=  5.17791 (pi= 2.06056 V=  6.41847 H= -9.1893) ratio=1.04149 ||g||=1.7383e+02 lr_actor=4.500e-06
+    epoch  7: loss=  3.85841 (pi= 1.98699 V=  3.92663 H= -9.1893) ratio=1.00430 ||g||=1.2302e+02 lr_actor=4.800e-06
+    epoch  8: loss=  3.04768 (pi= 1.96586 V=  2.34743 H= -9.1894) ratio=0.99363 ||g||=1.1494e+02 lr_actor=5.100e-06
+    epoch  9: loss=  3.58684 (pi= 1.95848 V=  3.44052 H= -9.1894) ratio=0.98989 ||g||=1.2556e+02 lr_actor=5.400e-06
+    epoch 10: loss=  3.33490 (pi= 2.05979 V=  2.73402 H= -9.1894) ratio=1.04110 ||g||=1.2554e+02 lr_actor=5.700e-06
+
+  12d) PARAMETER CHANGE after 10 epochs on window 2
+    parameter                                      ||before||    ||delta||   max|delta|
+    encoder.vsn.selection_grn.fc1.weight             4.730956 1.528902e-04 1.624227e-05
+    encoder.vsn.var_proj.weight                     17.885429 6.980429e-04 2.047420e-05
+    encoder.lstm.weight_ih_l0                       10.617682 9.702513e-04 2.073869e-05
+    encoder.mha.W_q.weight                           6.515901 7.968900e-04 1.930445e-05
+    encoder.macro_graph.learnable_adj                5.000000 0.000000e+00 0.000000e+00
+    encoder.macro_graph.gat0.W                       1.960991 4.054277e-04 1.447275e-05
+    encoder.fusion.0.weight                          6.538765 7.341829e-04 1.774728e-05
+    encoder.regime_temperature                       1.000004 5.841255e-06 5.841255e-06
+    actor.mean_head.weight                           0.010005 2.302094e-04 3.677054e-05
+    actor.log_std                                    1.581158 9.291048e-05 4.142523e-05
+    critic.value_head.weight                         0.999996 1.164840e-04 2.049655e-05
+    regime_temperature: 1.00000393 -> 0.99999809
+    actor.log_std[0]:   -0.50000995 -> -0.49998367
+
+  12e) same window re-run through the TUNED model (deterministic):
+    V(s) before update = 0.242913   after = 0.186581   (target was -1.735563)
+    regime_probs before = [0.258265 0.481855 0.25988 ]   after = [0.257562 0.484264 0.258174]
+    weights max before = 0.186556  after = 0.100296
+
+####################################################################################################
+WINDOW 3 / 5   |   env.current_step = 2   |   window 2021-02-08 -> 2021-03-23   |   reward over 2021-03-23 -> 2021-03-24
+####################################################################################################
+
+----------------------------------------------------------------------------------------------------
+STAGE 1 :: OBSERVATION TENSOR  (env -> agent)
+----------------------------------------------------------------------------------------------------
+  obs['features']            (30, 150)      (window_size=30, n_features=150)
+  after .unsqueeze(0)        (1, 30, 150)  (batch, T, N*F)
+  encoder reshape+permute -> (1, 10, 30, 15)  (batch, n_assets, T, F_per_asset)
+     view(B,T,N,F) then permute(0,2,1,3): column (asset i, feature j) of the flat
+     150-vector lands at x[0, i, :, j] -- this is why reorder_per_asset() is required.
+
+  the window SLID one trading day: row 2021-02-05 dropped off the front,
+  row 2021-03-23 entered at the back. Last 3 rows of x[0,0] ('COMB'):
+                 f0       f1       f2       f3       f4       f5       f6       f7       f8       f9      f10      f11      f12      f13      f14
+2021-03-19  -0.5598  -0.2235  -0.2266  -0.0422  -0.4998   0.0671   0.1460  -0.4143   0.0084   0.0254  -0.0532  -0.2269  -0.1963  -0.1581  -0.2970
+2021-03-22   0.4347  -0.2347  -0.2394  -0.0365  -0.0247   0.0381   0.1801  -0.3330   0.0078   0.0217  -0.0434   0.1247  -0.8089  -0.6616  -0.6087
+2021-03-23   0.0272  -0.2975  -0.3652  -0.0417  -0.1781  -0.2131   0.1141  -0.1932   0.0095   0.0191  -0.0292   0.1180  -0.8656  -0.7311  -0.6551
+  (the other 29 rows are identical to window 2 -- 29/30 of the input is shared,
+   which is why consecutive decisions are highly correlated)
+
+  verify against norm_train: max|x[0,0] - norm_train[COMB cols][2:32]| = 5.786e-08
+
+  whole-tensor stats: [-0.106154  1.361891  0.711313  0.920271 -0.924616 -0.800444] ...  [min=-21.382816 max=9.932484 mean=-0.234672 std=0.930429]
+
+----------------------------------------------------------------------------------------------------
+STAGE 2 :: VARIABLE SELECTION NETWORK (V-VSN)   [src/models/vsn_lstm.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   x_flat            (10, 30, 15)  = (B*N=10, T=30, F=15)
+          all 10 assets are folded into the batch -> ONE shared VSN, channel-independent
+
+  2a) selection_grn : GatedResidualNetwork(in=15, hidden=64, out=15)
+      flat input                (300, 15)  (B*N*T rows)
+      -> raw selection logits   (300, 15)
+      -> softmax over F         (300, 15)   sums to 1 per (asset,timestep)
+
+      logits  for 'COMB' at t=29: [ 1.2608 -0.1829 -0.5619  0.1013  0.3526  0.3122  0.6407  0.0473  0.4178  0.9254  0.3626  1.4089 -2.3523 -1.3913 -1.3411]
+      WEIGHTS for 'COMB' at t=29:
+        f0  COMB                         input=   0.0272   weight=0.160751
+        f1  COMB_vol_5d                  input=  -0.2975   weight=0.037944
+        f2  COMB_vol_10d                 input=  -0.3652   weight=0.025974
+        f3  COMB_vol_20d                 input=  -0.0417   weight=0.050416
+        f4  COMB_mom_5d                  input=  -0.1781   weight=0.064820
+        f5  COMB_mom_10d                 input=  -0.2131   weight=0.062255
+        f6  COMB_mom_20d                 input=   0.1141   weight=0.086468
+        f7  COMB_rsi                     input=  -0.1932   weight=0.047766
+        f8  COMB_macd                    input=   0.0095   weight=0.069189
+        f9  COMB_macd_signal             input=   0.0191   weight=0.114939
+        f10 COMB_macd_hist               input=  -0.0292   weight=0.065475
+        f11 COMB_bb_pct                  input=   0.1180   weight=0.186417
+        f12 COMB_vol_ratio_5d            input=  -0.8656   weight=0.004335
+        f13 COMB_vol_ratio_10d           input=  -0.7311   weight=0.011334
+        f14 COMB_vol_ratio_20d           input=  -0.6551   weight=0.011917
+        sum of weights = 1.000000
+        top-3 selected features: _bb_pct=0.1864, <log-return>=0.1608, _macd_signal=0.1149
+
+  2b) var_proj : Linear(15, 15*64=960, bias=False) then view(.,15,64)
+      -> projected              (300, 15, 64)   (one 64-dim embedding per input variable)
+      projected[COMB t=29, f0, :6] = [-0.3654   0.23757 -0.42976  0.0259   0.18635  0.18634]
+
+  2c) weighted sum over the F variable embeddings
+      OUTPUT  selected          (10, 30, 64)  = (B*N, T, vsn_hidden=64)
+      var_weights               (10, 30, 15)
+      selected[COMB, t=29] = [-0.155415  0.070938 -0.076654 -0.042946  0.040417  0.191565  0.137663  0.035634] ...  [min=-0.163857 max=0.191565 mean=0.017556 std=0.078933]
+      manual recomputation matches module: max abs diff = 0.000e+00
+      cross-asset spread of selected[:, -1, :] std over assets = 0.419446  (0 would mean assets are indistinguishable)
+
+----------------------------------------------------------------------------------------------------
+STAGE 3 :: LSTM  (temporal dynamics)   [src/models/vsn_lstm.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   selected          (10, 30, 64)
+  nn.LSTM(input_size=64, hidden_size=128, num_layers=2, batch_first=True, dropout=0.1)
+  init: weight_hh orthogonal per gate block, weight_ih xavier, forget-gate bias = 1.0
+        check bias_ih_l0 forget block [128:256] mean = 1.0000
+
+  OUTPUT  lstm_out          (10, 30, 128)   (B*N, T, lstm_hidden=128)
+          h_n               (2, 10, 128)    (num_layers, B*N, hidden)
+          c_n               (2, 10, 128)
+    lstm_out[COMB, t=29]  = [-0.17134  -0.437254 -0.404322  0.086706  0.427928 -0.248249 -0.118068 -0.509905] ...  [min=-0.675123 max=0.687861 mean=0.000042 std=0.365820]
+    lstm_out[COMB, t=0]      = [ 0.002866  0.000212  0.000432  0.001352 -0.004299 -0.003113] ...  [min=-0.006325 max=0.006284 mean=-0.000189 std=0.002478]
+    LayerNorm -> normed[COMB, t=29] = [-0.468478 -1.195343 -1.105323  0.236887  1.169622 -0.678696 -0.322853 -1.393925] ...  [min=-1.845538 max=1.880123 mean=-0.000001 std=0.999964]
+    output_proj Linear(128,128) -> [-1.078887  0.606521 -1.253027  0.307555  0.120946  1.416091 -0.719688 -0.384908] ...  [min=-1.439086 max=1.847735 mean=0.039653 std=0.653673]
+    (trainer note: no hidden state is carried between windows -- each window is self-contained)
+
+----------------------------------------------------------------------------------------------------
+STAGE 4 :: TEMPORAL MULTI-HEAD ATTENTION   [src/models/temporal_attention.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   output_proj result  (10, 30, 128)
+  d_model=128, num_heads=4, d_k=32, ffn_dim=256
+
+  4a) positional encoding (sinusoidal, added): pe[0,0,:6] = [0. 1. 0. 1. 0. 1.]
+      x + pe -> (10, 30, 128)
+  4b) Q = W_q(x): (10, 4, 30, 32)  (B*N, heads, T, d_k) ; same for K, V
+      Q[COMB, head0, t=29, :6] = [ 0.5291 -0.827   0.1376  0.4993 -0.3489  0.2877]
+  4c) scores = QK^T/sqrt(d_k) -> (10, 4, 30, 30)
+      scores[COMB, head0, t=29, :8] = [0.2924 0.2486 0.3    0.3531 0.38   0.335  0.2607 0.2208]
+  4d) attn_weights = softmax(scores) -> (10, 4, 30, 30)
+      attention paid by the LAST timestep (2021-03-23) across the 30-day window, head 0:
+        t00=0.0302  t01=0.0289  t02=0.0305  t03=0.0321  t04=0.0330
+        t05=0.0315  t06=0.0293  t07=0.0281  t08=0.0291  t09=0.0314
+        t10=0.0335  t11=0.0339  t12=0.0324  t13=0.0308  t14=0.0305
+        t15=0.0323  t16=0.0354  t17=0.0384  t18=0.0395  t19=0.0383
+        t20=0.0362  t21=0.0346  t22=0.0339  t23=0.0342  t24=0.0349
+        t25=0.0355  t26=0.0358  t27=0.0357  t28=0.0353  t29=0.0349
+      sum=1.000000   argmax=t18 (2021-03-05) weight=0.0395
+  4e) context = attn @ V, concat heads, W_o, +residual, LayerNorm -> (10, 30, 128)
+  4f) FFN Linear(128,256)-GELU-Linear(256,128) + residual + LayerNorm
+      OUTPUT attn_out       (10, 30, 128)
+      attn_out[COMB, t=29] = [-2.587198 -0.9091   -1.944442  1.683714 -0.276605  0.166715 -1.259301 -0.098122] ...  [min=-2.660774 max=2.751547 mean=0.000000 std=0.999995]
+      manual MHA sub-block matches module: max abs diff = 0.000e+00
+
+  4g) take LAST timestep only -> per-asset temporal embedding
+      H = (1, 10, 128)  (batch, n_assets, lstm_hidden)
+      H[0,0] ('COMB') = [-2.587198 -0.9091   -1.944442  1.683714 -0.276605  0.166715 -1.259301 -0.098122] ...  [min=-2.660774 max=2.751547 mean=0.000000 std=0.999995]
+      H[0,1] ('DFCC') = [-2.580645 -1.095244 -2.116212  1.383804  0.227951  0.170766] ...  [min=-2.663172 max=2.293802 mean=0.000000 std=0.999995]
+      cross-asset std (mean over dims) = 0.499825
+
+----------------------------------------------------------------------------------------------------
+STAGE 5 :: MACRO GRAPH PRIOR (GAT)   [src/models/macro_graph_prior.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   H                 (1, 10, 128)  -> 10 graph NODES (one per asset), n_macro=0
+  adjacency: learnable_adj (10, 10), all entries = [0.5] -> sigmoid = 0.6225 > 0
+             build_adjacency() -> adj (10, 10), sum = 100 of 100 -> FULLY CONNECTED graph (every bank linked to every bank)
+  node_proj Linear(128,64) -> (1, 10, 64)
+    h0[0,0] = [ 0.216323  0.310142 -0.163007  0.838555  0.760225  0.055613  0.505468  0.325215] ...  [min=-1.133416 max=1.395150 mean=0.065980 std=0.584907]
+
+  GAT layer 0: in=64 out=64 heads=2 concat=True -> output_dim=128
+    W       (2, 64, 64)   a_src (2, 64, 1)   a_dst (2, 64, 1)
+    e_ij = LeakyReLU(0.2)(a_src.Wh_i + a_dst.Wh_j), masked by adj, softmax over j
+    attention  (1, 2, 10, 10)  (batch, heads, N, N)
+    node 0 ('COMB') attention over its 10 neighbours (head 0):
+      first 8: [0.09855 0.09792 0.09657 0.10078 0.09497 0.09822 0.10252 0.09356]
+      sum=1.000000  self-weight=0.09855  max=node 9 ('ABL') 0.11369  min=0.09356  uniform would be 0.10000
+    after ELU + LayerNorm + residual: h (1, 10, 128)   cross-node std = 0.167030
+
+  GAT layer 1: in=128 out=64 heads=2 concat=False -> output_dim=64
+    W       (2, 128, 64)   a_src (2, 64, 1)   a_dst (2, 64, 1)
+    e_ij = LeakyReLU(0.2)(a_src.Wh_i + a_dst.Wh_j), masked by adj, softmax over j
+    attention  (1, 2, 10, 10)  (batch, heads, N, N)
+    node 0 ('COMB') attention over its 10 neighbours (head 0):
+      first 8: [0.10193 0.0989  0.09729 0.10234 0.09636 0.10546 0.09993 0.09322]
+      sum=1.000000  self-weight=0.10193  max=node 8 ('SAMP') 0.10696  min=0.09322  uniform would be 0.10000
+    after ELU + LayerNorm + residual: h (1, 10, 64)   cross-node std = 0.097975
+
+  OUTPUT  node_embeddings   (1, 10, 64)
+          graph_embedding   (1, 64)  (mean-pool + readout MLP; NOT used downstream in this architecture)
+    node_embeddings[0,0] = [ 0.171701 -0.003209  0.268543 -1.111156  0.829057  0.186951  0.274033 -1.523687] ...  [min=-2.182893 max=2.847915 mean=0.033524 std=1.116945]
+    manual == module: nodes 0.000e+00, graph 0.000e+00
+
+----------------------------------------------------------------------------------------------------
+STAGE 6 :: PER-ASSET FUSION  ->  h_asset ,  MEAN-POOL  ->  h_market
+----------------------------------------------------------------------------------------------------
+  concat[H(128), node_emb(64)] -> fused (1, 10, 192)
+  fusion = Linear(192,128) -> GELU -> Dropout(0.1) -> Linear(128,128) -> LayerNorm
+  OUTPUT  h_asset           (1, 10, 128)   -> goes to the ACTOR
+          h_market          (1, 128)   -> goes to the CRITIC + regime classifier
+    h_asset[0,0] ('COMB')  = [ 0.529112 -0.840176 -0.508188  0.546459  1.56305  -1.522855  1.288887 -1.306555] ...  [min=-2.601888 max=2.349483 mean=0.000001 std=0.999896]
+    h_asset[0,1] ('DFCC') = [ 0.155337 -0.400338  0.144054  0.738948  1.748936 -1.351892] ...  [min=-2.585817 max=2.581653 mean=0.000001 std=0.999898]
+    h_market[0]                = [ 0.260621 -0.558492 -0.388036  0.735518  1.358316 -1.487742  0.825691 -1.528957] ...  [min=-2.290305 max=2.012281 mean=0.000001 std=0.913674]
+    cross-asset std of h_asset = 0.407647
+
+----------------------------------------------------------------------------------------------------
+STAGE 7 :: REGIME CLASSIFIER  (Bull / Bear / Sideways, differentiable)
+----------------------------------------------------------------------------------------------------
+  INPUT   h_market          (1, 128)
+  Linear(128,64) -> GELU -> Dropout -> Linear(64,3)
+  learnable regime_temperature = 0.999998 (clamped min 0.1)
+  OUTPUT  regime_logits     (1, 3) = [-0.27435   0.335094 -0.294197]
+          regime_probs      = softmax(logits/T) = [0.261797 0.481551 0.256652]   sum=1.000000
+          -> regime 1 (Bear) with p=0.4816
+          entropy = 1.051802 (max possible ln3=1.0986)
+
+----------------------------------------------------------------------------------------------------
+STAGE 8 :: ACTOR (policy pi)   [src/models/actor.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   h_asset (1, 10, 128) + regime_probs (1, 3)
+  trunk (SHARED across assets, applied on last dim):
+    Linear(128,256)+LayerNorm+ReLU+Dropout -> Linear(256,128)+LayerNorm+ReLU+Dropout
+    -> features (1, 10, 128)
+  regime_embed Linear(3,128) -> (1, 128), broadcast-added to every asset
+    regime_signal[0,:6] = [ 0.000892 -0.000876  0.000702 -0.000573 -0.001213 -0.00009 ]
+  mean_head Linear(128,1) -> one logit per asset (1, 10)
+  mean = logit_scale*tanh(raw/logit_scale), logit_scale=5.0
+    raw_head[0,:8] = [0.007439 0.00655  0.007486 0.002192 0.001849 0.001968 0.004014 0.002613]
+    mean[0]      = [0.007439 0.00655  0.007486 0.002192 0.001849 0.001968 0.004014 0.002613] ...  [min=0.001849 max=0.007486 mean=0.004193 std=0.002189]
+  log_std (learnable, (10,)) = [-0.499984 -0.499988 -0.499985 -0.500051 -0.500009] ...  [min=-0.500051 max=-0.499963 mean=-0.499998 std=0.000029]  -> std = 0.606541
+
+  a) Gaussian policy N(mean, std) per asset, sample via rsample()E:\Learning\4th 1st Semester\Research\Regime detection portfolio\src\training\advantage.py:65: UserWarning: std(): degrees of freedom is <= 0. Correction should be strictly less than the reduction factor (input numel divided by output numel). (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\aten\src\ATen\native\ReduceOps.cpp:1879.)
+  return (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+
+     raw_action (1, 10) = [ 0.043192 -0.839243  0.519879  0.07909   0.658258 -0.709561 -1.02029   0.262031] ...  [min=-1.020290 max=0.658258 mean=-0.052547 std=0.579880]
+     log_prob   = sum_i log N(a_i; mu_i, sigma_i) = -8.802362
+     entropy    = sum_i 0.5*log(2*pi*e*sigma_i^2) = 9.189405
+     manual entropy check: 9.189549
+  b) squash to allocation: allow_short=False -> SOFTMAX over 10 assets
+     action (portfolio weights) = [0.094704 0.039186 0.152543 0.098166 0.175182 0.044612 0.032697 0.117872] ...  [min=0.032697 max=0.175182 mean=0.100000 std=0.049472]
+     sum=1.000000  max=0.175182 (asset 4 = PABC)
+     equal weight would be 1/10 = 0.100000
+
+----------------------------------------------------------------------------------------------------
+STAGE 9 :: CRITIC (value V)   [src/models/critic.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   h_market (1, 128) + regime_probs (1, 3)
+  Linear(128,256)+LN+ReLU+Drop -> Linear(256,128)+LN+ReLU+Drop -> +regime_embed(3->128) -> Linear(128,1)
+    critic features[0,:6] = [0.       0.       0.       0.912177 0.       0.      ]
+  OUTPUT  V(s) = 0.210333
+
+  cross-check vs agent.forward(): |action|=0.000e+00 |value|=0.000e+00 |log_prob|=0.000e+00 |regime|=0.000e+00
+
+----------------------------------------------------------------------------------------------------
+STAGE 10 :: MARKET ENVIRONMENT STEP  (real prices, real costs)
+----------------------------------------------------------------------------------------------------
+  action in                 (10,)  [0.094704 0.039186 0.152543 0.098166 0.175182 0.044612] ...  [min=0.032697 max=0.175182 mean=0.100000 std=0.049472]
+  _clip_weights: clip to +/-0.3 then renormalise (long-only, sum->1)
+    n weights above cap = 0   clipped sum = 1.000000 -> divide by it
+    new_weights = [0.094704 0.039186 0.152543 0.098166 0.175182 0.044612] ...  [min=0.032697 max=0.175182 mean=0.100000 std=0.049472]
+  turnover = sum|w_new - w_old| = 0.387539   (w_old sum = 1.0000)
+  transaction cost = 0.001 * turnover * PV = 377.79 LKR
+  slippage         = 0.0005 * turnover * PV = 188.89 LKR      total = 566.68 LKR
+
+  REAL PRICES used for the return:
+      P(2021-03-23)  P(2021-03-24)  simple return       weight  contribution
+COMB      80.400000      82.000000       0.019900     0.094704      0.001885
+DFCC      59.500000      60.000000       0.008403     0.039186      0.000329
+HNB      100.000000     100.000000       0.000000     0.152543      0.000000
+NDB       80.000000      80.400000       0.005000     0.098166      0.000491
+PABC      14.400000      15.000000       0.041667     0.175182      0.007299
+SEYB      43.300000      45.000000       0.039261     0.044612      0.001752
+UBC       10.200000      10.400000       0.019608     0.032697      0.000641
+NTB       53.800000      54.000000       0.003717     0.117872      0.000438
+  ... 10 assets total.  asset_returns: [0.0199   0.008403 0.       0.005    0.041667 0.039261] ...  [min=0.000000 max=0.062136 mean=0.023094 std=0.019161]
+
+  portfolio_return = w . r = 0.02300281  (2.3003 %)
+  portfolio_value  = 974,831.70 * (1 + 0.023003) - 566.68 = 996,688.88 LKR
+  done = False   (env.n_steps=541, current_step now 3)
+
+----------------------------------------------------------------------------------------------------
+STAGE 11 :: REWARD CALCULATION   [src/environment/reward.py]
+----------------------------------------------------------------------------------------------------
+  Net reward = rolling Sharpe  +  EVaR penalty  +  cost penalty
+  buffer length before this step = 2
+  daily_rf = (1+0.06)^(1/252)-1 = 0.00023125
+  return buffer (n=3) = [ 0.002017 -0.024663  0.023003]
+    excess = r - daily_rf ; mean=-0.00011226  std=0.01950569
+    Sharpe = mean/std*sqrt(252) = -0.091360
+  EVaR penalty: needs >= sharpe_window(20) observations -> INACTIVE (0.0) at this stage
+  cost penalty = -(tc_rate*turnover + turnover_penalty*turnover^2)
+               = -(0.001*0.387539 + 0.001*0.387539^2) = -0.00053772
+
+  COMPONENTS: sharpe=-0.091360  evar=0.000000  cost=-0.000538
+  NET REWARD r_2 = -0.091897
+
+----------------------------------------------------------------------------------------------------
+STAGE 12 :: BACKPROPAGATION + PARAMETER UPDATE (PPO, joint end-to-end)
+----------------------------------------------------------------------------------------------------
+  NOTE: the real trainer buffers rollout_length=256 steps before updating.
+        Here we update after EVERY window (batch of 1) as requested, using the same
+        RewardNormalizer / compute_gae / PPO-loss code paths.
+
+  12a) RewardNormalizer: discounted acc = -0.091897, running std = 6.460440 (count=3.0001)
+       scaled reward = -0.091897 / 6.460440 = -0.014225
+
+  12b) GAE(gamma=0.99, lambda=0.95) on T=1
+       V(s_t)=0.210333   V(s_t+1)=0.207227   done=0.0
+       delta = r + gamma*V(s_t+1)*(1-done) - V(s_t) = -0.014225 + 0.99*0.207227 - 0.210333 = -0.019403
+       advantage = -0.019403   return (target for critic) = 0.190931
+       trainer then calls normalize_advantages() -> nan
+       *** with a single sample, (adv-adv.mean())/(adv.std()+1e-8) is 0/nan because torch's
+       std uses ddof=1 -> undefined for n=1. We therefore keep the RAW advantage for this
+       1-step demo so the policy term is visible. (With rollout_length=256 as the real
+       trainer uses, the normalisation is well defined.)
+
+  12c) PPO epochs (n_epochs=10), agent.train() -> dropout active
+
+    --- epoch 1 in full detail ---
+    evaluate_actions() re-encodes the SAME window with dropout on:
+      old log_prob (stored) = -8.802362
+      new log_prob          = -8.808984
+      ratio = exp(new-old)  = 0.993401
+      advantage             = -0.019403
+      surr1 = ratio*A       = -0.019275
+      surr2 = clip(ratio,0.8,1.2)*A = -0.019275
+      policy_loss = -min(surr1,surr2) = 0.019275
+      V_new = -0.084227, target return = 0.190931 -> value_loss = 0.075712
+      entropy = 9.189405 -> entropy_loss = -9.189405
+      total = 0.019275 + 0.5*0.075712 + 0.01*-9.189405 = -0.034763
+    backward() gradient norms per component:
+      regime_encoder   ||g|| = 1.661648e+01
+      actor            ||g|| = 5.256750e-01
+      critic           ||g|| = 5.200152e+00
+      TOTAL ||g|| = 1.741911e+01  -> clip_grad_norm_(max=0.5) returned 1.741911e+01  (CLIPPED, scale=0.0287)
+    learning rates at this step: encoder=3.000e-06 actor=6.000e-06 critic=6.000e-06
+      (LambdaLR linear warmup over 1000 steps; scheduler step counter is now 21)
+    epoch  2: loss=  0.06500 (pi= 0.01946 V=  0.27486 H= -9.1894) ratio=1.00306 ||g||=3.0855e+01 lr_actor=6.300e-06
+    epoch  3: loss= -0.07137 (pi= 0.01969 V=  0.00167 H= -9.1894) ratio=1.01470 ||g||=2.5809e+00 lr_actor=6.600e-06
+    epoch  4: loss= -0.07176 (pi= 0.01924 V=  0.00178 H= -9.1895) ratio=0.99155 ||g||=2.7202e+00 lr_actor=6.900e-06
+    epoch  5: loss= -0.04111 (pi= 0.01928 V=  0.06301 H= -9.1895) ratio=0.99380 ||g||=1.3133e+01 lr_actor=7.200e-06
+    epoch  6: loss= -0.00689 (pi= 0.01930 V=  0.13141 H= -9.1895) ratio=0.99454 ||g||=2.2163e+01 lr_actor=7.500e-06
+    epoch  7: loss=  0.21530 (pi= 0.01951 V=  0.57537 H= -9.1895) ratio=1.00545 ||g||=5.3463e+01 lr_actor=7.800e-06
+    epoch  8: loss=  0.06219 (pi= 0.01981 V=  0.26855 H= -9.1896) ratio=1.02119 ||g||=3.2031e+01 lr_actor=8.100e-06
+    epoch  9: loss= -0.07282 (pi= 0.01906 V=  0.00004 H= -9.1896) ratio=0.98222 ||g||=6.8295e-01 lr_actor=8.400e-06
+    epoch 10: loss= -0.07274 (pi= 0.01877 V=  0.00077 H= -9.1896) ratio=0.96723 ||g||=1.8691e+00 lr_actor=8.700e-06
+
+  12d) PARAMETER CHANGE after 10 epochs on window 3
+    parameter                                      ||before||    ||delta||   max|delta|
+    encoder.vsn.selection_grn.fc1.weight             4.730961 1.380266e-04 1.470000e-05
+    encoder.vsn.var_proj.weight                     17.885435 6.661444e-04 2.223253e-05
+    encoder.lstm.weight_ih_l0                       10.617674 1.021938e-03 2.651662e-05
+    encoder.mha.W_q.weight                           6.515894 8.516730e-04 2.811104e-05
+    encoder.macro_graph.learnable_adj                5.000000 0.000000e+00 0.000000e+00
+    encoder.macro_graph.gat0.W                       1.960994 4.775861e-04 2.312660e-05
+    encoder.fusion.0.weight                          6.538774 9.485997e-04 2.654083e-05
+    encoder.regime_temperature                       0.999998 4.708767e-06 4.708767e-06
+    actor.mean_head.weight                           0.009993 2.920909e-04 4.716794e-05
+    actor.log_std                                    1.581132 1.311154e-04 6.291270e-05
+    critic.value_head.weight                         0.999996 1.136178e-04 2.387911e-05
+    regime_temperature: 0.99999809 -> 0.99999338
+    actor.log_std[0]:   -0.49998367 -> -0.49992445
+
+  12e) same window re-run through the TUNED model (deterministic):
+    V(s) before update = 0.210333   after = 0.185897   (target was 0.190931)
+    regime_probs before = [0.261797 0.481551 0.256652]   after = [0.261929 0.483049 0.255021]
+    weights max before = 0.175182  after = 0.100333
+
+####################################################################################################
+WINDOW 4 / 5   |   env.current_step = 3   |   window 2021-02-09 -> 2021-03-24   |   reward over 2021-03-24 -> 2021-03-25
+####################################################################################################
+
+----------------------------------------------------------------------------------------------------
+STAGE 1 :: OBSERVATION TENSOR  (env -> agent)
+----------------------------------------------------------------------------------------------------
+  obs['features']            (30, 150)      (window_size=30, n_features=150)
+  after .unsqueeze(0)        (1, 30, 150)  (batch, T, N*F)
+  encoder reshape+permute -> (1, 10, 30, 15)  (batch, n_assets, T, F_per_asset)
+     view(B,T,N,F) then permute(0,2,1,3): column (asset i, feature j) of the flat
+     150-vector lands at x[0, i, :, j] -- this is why reorder_per_asset() is required.
+
+  the window SLID one trading day: row 2021-02-08 dropped off the front,
+  row 2021-03-24 entered at the back. Last 3 rows of x[0,0] ('COMB'):
+                 f0       f1       f2       f3       f4       f5       f6       f7       f8       f9      f10      f11      f12      f13      f14
+2021-03-22   0.4347  -0.2347  -0.2394  -0.0365  -0.0247   0.0381   0.1801  -0.3330   0.0078   0.0217  -0.0434   0.1247  -0.8089  -0.6616  -0.6087
+2021-03-23   0.0272  -0.2975  -0.3652  -0.0417  -0.1781  -0.2131   0.1141  -0.1932   0.0095   0.0191  -0.0292   0.1180  -0.8656  -0.7311  -0.6551
+2021-03-24   0.6936  -0.3095  -0.2824  -0.0251   0.3835  -0.0172   0.1735   0.1892   0.0621   0.0281   0.1207   0.7470  -0.0003  -0.2949  -0.4024
+  (the other 29 rows are identical to window 3 -- 29/30 of the input is shared,
+   which is why consecutive decisions are highly correlated)
+
+  verify against norm_train: max|x[0,0] - norm_train[COMB cols][3:33]| = 5.786e-08
+
+  whole-tensor stats: [-0.643123  1.347857  0.715771  0.94144  -1.142426 -0.959642] ...  [min=-21.382816 max=10.089511 mean=-0.240004 std=0.957238]
+
+----------------------------------------------------------------------------------------------------
+STAGE 2 :: VARIABLE SELECTION NETWORK (V-VSN)   [src/models/vsn_lstm.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   x_flat            (10, 30, 15)  = (B*N=10, T=30, F=15)
+          all 10 assets are folded into the batch -> ONE shared VSN, channel-independent
+
+  2a) selection_grn : GatedResidualNetwork(in=15, hidden=64, out=15)
+      flat input                (300, 15)  (B*N*T rows)
+      -> raw selection logits   (300, 15)
+      -> softmax over F         (300, 15)   sums to 1 per (asset,timestep)
+
+      logits  for 'COMB' at t=29: [ 2.0811 -0.8285 -1.1418 -0.5988  0.9147 -0.104  -0.2053  0.2482 -0.0938 -0.2198 -0.0119  2.2317 -0.2026 -0.7623 -1.3068]
+      WEIGHTS for 'COMB' at t=29:
+        f0  COMB                         input=   0.6936   weight=0.282327
+        f1  COMB_vol_5d                  input=  -0.3095   weight=0.015386
+        f2  COMB_vol_10d                 input=  -0.2824   weight=0.011247
+        f3  COMB_vol_20d                 input=  -0.0251   weight=0.019359
+        f4  COMB_mom_5d                  input=   0.3835   weight=0.087942
+        f5  COMB_mom_10d                 input=  -0.0172   weight=0.031754
+        f6  COMB_mom_20d                 input=   0.1735   weight=0.028694
+        f7  COMB_rsi                     input=   0.1892   weight=0.045157
+        f8  COMB_macd                    input=   0.0621   weight=0.032077
+        f9  COMB_macd_signal             input=   0.0281   weight=0.028281
+        f10 COMB_macd_hist               input=   0.1207   weight=0.034815
+        f11 COMB_bb_pct                  input=   0.7470   weight=0.328215
+        f12 COMB_vol_ratio_5d            input=  -0.0003   weight=0.028770
+        f13 COMB_vol_ratio_10d           input=  -0.2949   weight=0.016439
+        f14 COMB_vol_ratio_20d           input=  -0.4024   weight=0.009537
+        sum of weights = 1.000000
+        top-3 selected features: _bb_pct=0.3282, <log-return>=0.2823, _mom_5d=0.0879
+
+  2b) var_proj : Linear(15, 15*64=960, bias=False) then view(.,15,64)
+      -> projected              (300, 15, 64)   (one 64-dim embedding per input variable)
+      projected[COMB t=29, f0, :6] = [ 0.07749 -0.06088  0.01124 -0.1481   0.32928  0.06941]
+
+  2c) weighted sum over the F variable embeddings
+      OUTPUT  selected          (10, 30, 64)  = (B*N, T, vsn_hidden=64)
+      var_weights               (10, 30, 15)
+      selected[COMB, t=29] = [-0.003418 -0.090413  0.012844 -0.143928  0.062648  0.024465 -0.033629  0.090655] ...  [min=-0.183058 max=0.211787 mean=0.015885 std=0.089735]
+      manual recomputation matches module: max abs diff = 0.000e+00
+      cross-asset spread of selected[:, -1, :] std over assets = 0.370488  (0 would mean assets are indistinguishable)
+
+----------------------------------------------------------------------------------------------------
+STAGE 3 :: LSTM  (temporal dynamics)   [src/models/vsn_lstm.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   selected          (10, 30, 64)
+  nn.LSTM(input_size=64, hidden_size=128, num_layers=2, batch_first=True, dropout=0.1)
+  init: weight_hh orthogonal per gate block, weight_ih xavier, forget-gate bias = 1.0
+        check bias_ih_l0 forget block [128:256] mean = 1.0000
+
+  OUTPUT  lstm_out          (10, 30, 128)   (B*N, T, lstm_hidden=128)
+          h_n               (2, 10, 128)    (num_layers, B*N, hidden)
+          c_n               (2, 10, 128)
+    lstm_out[COMB, t=29]  = [ 0.075196 -0.411977 -0.395662  0.123856  0.40268  -0.217726 -0.049577 -0.523778] ...  [min=-0.635111 max=0.664300 mean=0.014452 std=0.361063]
+    lstm_out[COMB, t=0]      = [ 0.002416  0.000168  0.000409  0.002055 -0.006442 -0.002777] ...  [min=-0.006442 max=0.007901 mean=-0.000171 std=0.002689]
+    LayerNorm -> normed[COMB, t=29] = [ 0.168223 -1.181    -1.135807  0.302979  1.075194 -0.643018 -0.177332 -1.490626] ...  [min=-1.798938 max=1.799731 mean=-0.000002 std=0.999964]
+    output_proj Linear(128,128) -> [-0.998104  0.458614 -1.280764  0.357621  0.012938  1.341565 -0.667859 -0.553716] ...  [min=-1.394275 max=1.861005 mean=0.057999 std=0.657648]
+    (trainer note: no hidden state is carried between windows -- each window is self-contained)
+
+----------------------------------------------------------------------------------------------------
+STAGE 4 :: TEMPORAL MULTI-HEAD ATTENTION   [src/models/temporal_attention.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   output_proj result  (10, 30, 128)
+  d_model=128, num_heads=4, d_k=32, ffn_dim=256
+
+  4a) positional encoding (sinusoidal, added): pe[0,0,:6] = [0. 1. 0. 1. 0. 1.]
+      x + pe -> (10, 30, 128)
+  4b) Q = W_q(x): (10, 4, 30, 32)  (B*N, heads, T, d_k) ; same for K, V
+      Q[COMB, head0, t=29, :6] = [ 0.5756 -0.8731  0.1392  0.4717 -0.3216  0.3259]
+  4c) scores = QK^T/sqrt(d_k) -> (10, 4, 30, 30)
+      scores[COMB, head0, t=29, :8] = [0.231  0.2385 0.3069 0.4012 0.4246 0.3773 0.306  0.2757]
+  4d) attn_weights = softmax(scores) -> (10, 4, 30, 30)
+      attention paid by the LAST timestep (2021-03-24) across the 30-day window, head 0:
+        t00=0.0282  t01=0.0284  t02=0.0304  t03=0.0334  t04=0.0342
+        t05=0.0327  t06=0.0304  t07=0.0295  t08=0.0305  t09=0.0329
+        t10=0.0350  t11=0.0352  t12=0.0335  t13=0.0317  t14=0.0312
+        t15=0.0327  t16=0.0356  t17=0.0380  t18=0.0387  t19=0.0374
+        t20=0.0355  t21=0.0340  t22=0.0335  t23=0.0336  t24=0.0339
+        t25=0.0342  t26=0.0343  t27=0.0342  t28=0.0338  t29=0.0334
+      sum=1.000000   argmax=t18 (2021-03-08) weight=0.0387
+  4e) context = attn @ V, concat heads, W_o, +residual, LayerNorm -> (10, 30, 128)
+  4f) FFN Linear(128,256)-GELU-Linear(256,128) + residual + LayerNorm
+      OUTPUT attn_out       (10, 30, 128)
+      attn_out[COMB, t=29] = [-2.496925 -1.042047 -2.028149  1.704708 -0.380934  0.075483 -1.204917 -0.31999 ] ...  [min=-2.715747 max=2.726721 mean=0.000001 std=0.999994]
+      manual MHA sub-block matches module: max abs diff = 0.000e+00
+
+  4g) take LAST timestep only -> per-asset temporal embedding
+      H = (1, 10, 128)  (batch, n_assets, lstm_hidden)
+      H[0,0] ('COMB') = [-2.496925 -1.042047 -2.028149  1.704708 -0.380934  0.075483 -1.204917 -0.31999 ] ...  [min=-2.715747 max=2.726721 mean=0.000001 std=0.999994]
+      H[0,1] ('DFCC') = [-2.518674 -1.124011 -2.276861  1.482174  0.036856  0.191382] ...  [min=-2.691942 max=2.333484 mean=0.000000 std=0.999994]
+      cross-asset std (mean over dims) = 0.495277
+
+----------------------------------------------------------------------------------------------------
+STAGE 5 :: MACRO GRAPH PRIOR (GAT)   [src/models/macro_graph_prior.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   H                 (1, 10, 128)  -> 10 graph NODES (one per asset), n_macro=0
+  adjacency: learnable_adj (10, 10), all entries = [0.5] -> sigmoid = 0.6225 > 0
+             build_adjacency() -> adj (10, 10), sum = 100 of 100 -> FULLY CONNECTED graph (every bank linked to every bank)
+  node_proj Linear(128,64) -> (1, 10, 64)
+    h0[0,0] = [ 0.191845  0.276124 -0.146852  0.922695  0.727309 -0.048379  0.420945  0.425585] ...  [min=-1.191531 max=1.291092 mean=0.073452 std=0.588022]
+
+  GAT layer 0: in=64 out=64 heads=2 concat=True -> output_dim=128
+    W       (2, 64, 64)   a_src (2, 64, 1)   a_dst (2, 64, 1)
+    e_ij = LeakyReLU(0.2)(a_src.Wh_i + a_dst.Wh_j), masked by adj, softmax over j
+    attention  (1, 2, 10, 10)  (batch, heads, N, N)
+    node 0 ('COMB') attention over its 10 neighbours (head 0):
+      first 8: [0.09824 0.10061 0.09684 0.10098 0.09577 0.09862 0.09861 0.09407]
+      sum=1.000000  self-weight=0.09824  max=node 9 ('ABL') 0.11256  min=0.09407  uniform would be 0.10000
+    after ELU + LayerNorm + residual: h (1, 10, 128)   cross-node std = 0.170025
+
+  GAT layer 1: in=128 out=64 heads=2 concat=False -> output_dim=64
+    W       (2, 128, 64)   a_src (2, 64, 1)   a_dst (2, 64, 1)
+    e_ij = LeakyReLU(0.2)(a_src.Wh_i + a_dst.Wh_j), masked by adj, softmax over j
+    attention  (1, 2, 10, 10)  (batch, heads, N, N)
+    node 0 ('COMB') attention over its 10 neighbours (head 0):
+      first 8: [0.10101 0.09926 0.09717 0.10123 0.09744 0.10607 0.09937 0.09245]
+      sum=1.000000  self-weight=0.10101  max=node 8 ('SAMP') 0.10674  min=0.09245  uniform would be 0.10000
+    after ELU + LayerNorm + residual: h (1, 10, 64)   cross-node std = 0.100226
+
+  OUTPUT  node_embeddings   (1, 10, 64)
+          graph_embedding   (1, 64)  (mean-pool + readout MLP; NOT used downstream in this architecture)
+    node_embeddings[0,0] = [ 0.235612 -0.040392  0.191745 -1.030477  0.804748  0.280111  0.388572 -1.627319] ...  [min=-2.186419 max=2.665764 mean=0.031881 std=1.116193]
+    manual == module: nodes 0.000e+00, graph 0.000e+00
+
+----------------------------------------------------------------------------------------------------
+STAGE 6 :: PER-ASSET FUSION  ->  h_asset ,  MEAN-POOL  ->  h_market
+----------------------------------------------------------------------------------------------------
+  concat[H(128), node_emb(64)] -> fused (1, 10, 192)
+  fusion = Linear(192,128) -> GELU -> Dropout(0.1) -> Linear(128,128) -> LayerNorm
+  OUTPUT  h_asset           (1, 10, 128)   -> goes to the ACTOR
+          h_market          (1, 128)   -> goes to the CRITIC + regime classifier
+    h_asset[0,0] ('COMB')  = [ 0.529316 -0.813439 -0.265398  0.351003  1.532428 -1.388732  1.432508 -1.284476] ...  [min=-2.613446 max=2.391882 mean=0.000003 std=0.999889]
+    h_asset[0,1] ('DFCC') = [ 0.093063 -0.388352  0.258343  0.566874  1.587952 -1.119812] ...  [min=-2.620494 max=2.653956 mean=0.000002 std=0.999888]
+    h_market[0]                = [ 0.263265 -0.512574 -0.270302  0.635881  1.269224 -1.421705  0.855448 -1.5654  ] ...  [min=-2.417580 max=2.076651 mean=0.000002 std=0.911379]
+    cross-asset std of h_asset = 0.413121
+
+----------------------------------------------------------------------------------------------------
+STAGE 7 :: REGIME CLASSIFIER  (Bull / Bear / Sideways, differentiable)
+----------------------------------------------------------------------------------------------------
+  INPUT   h_market          (1, 128)
+  Linear(128,64) -> GELU -> Dropout -> Linear(64,3)
+  learnable regime_temperature = 0.999993 (clamped min 0.1)
+  OUTPUT  regime_logits     (1, 3) = [-0.260629  0.309774 -0.303159]
+          regime_probs      = softmax(logits/T) = [0.268287 0.474597 0.257116]   sum=1.000000
+          -> regime 1 (Bear) with p=0.4746
+          entropy = 1.055919 (max possible ln3=1.0986)
+
+----------------------------------------------------------------------------------------------------
+STAGE 8 :: ACTOR (policy pi)   [src/models/actor.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   h_asset (1, 10, 128) + regime_probs (1, 3)
+  trunk (SHARED across assets, applied on last dim):
+    Linear(128,256)+LayerNorm+ReLU+Dropout -> Linear(256,128)+LayerNorm+ReLU+Dropout
+    -> features (1, 10, 128)
+  regime_embed Linear(3,128) -> (1, 128), broadcast-added to every asset
+    regime_signal[0,:6] = [ 0.000941 -0.000934  0.000772 -0.000635 -0.001277 -0.000154]
+  mean_head Linear(128,1) -> one logit per asset (1, 10)
+  mean = logit_scale*tanh(raw/logit_scale), logit_scale=5.0
+    raw_head[0,:8] = [ 0.005543  0.003853  0.005602  0.000664  0.000053  0.000745  0.002007 -0.001713]
+    mean[0]      = [ 0.005543  0.003853  0.005602  0.000664  0.000053  0.000745  0.002007 -0.001713] ...  [min=-0.001713 max=0.005602 mean=0.002036 std=0.002254]
+  log_std (learnable, (10,)) = [-0.499924 -0.499964 -0.499933 -0.500079 -0.500032] ...  [min=-0.500079 max=-0.499915 mean=-0.499975 std=0.000060]  -> std = 0.606577
+
+  a) Gaussian policy N(mean, std) per asset, sample via rsample()
+     raw_action (1, 10) = [-0.675261  0.022763 -0.407126  0.284658 -0.076975  0.518325 -0.488509  0.50096 ] ...  [min=-1.267550 max=0.518325 mean=-0.131989 std=0.545179]
+     log_prob   = sum_i log N(a_i; mu_i, sigma_i) = -8.487999
+     entropy    = sum_i 0.5*log(2*pi*e*sigma_i^2) = 9.189639
+     manual entropy check: 9.190141
+  b) squash to allocation: allow_short=False -> SOFTMAX over 10 assets
+     action (portfolio weights) = [0.050975 0.102448 0.06665  0.133119 0.092723 0.168159 0.061441 0.165265] ...  [min=0.028192 max=0.168159 mean=0.100000 std=0.046025]
+     sum=1.000000  max=0.168159 (asset 5 = SEYB)
+     equal weight would be 1/10 = 0.100000
+
+----------------------------------------------------------------------------------------------------
+STAGE 9 :: CRITIC (value V)   [src/models/critic.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   h_market (1, 128) + regime_probs (1, 3)
+  Linear(128,256)+LN+ReLU+Drop -> Linear(256,128)+LN+ReLU+Drop -> +regime_embed(3->128) -> Linear(128,1)E:\Learning\4th 1st Semester\Research\Regime detection portfolio\src\training\advantage.py:65: UserWarning: std(): degrees of freedom is <= 0. Correction should be strictly less than the reduction factor (input numel divided by output numel). (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\aten\src\ATen\native\ReduceOps.cpp:1879.)
+  return (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+
+    critic features[0,:6] = [0.       0.       0.       0.928778 0.       0.      ]
+  OUTPUT  V(s) = 0.192745
+
+  cross-check vs agent.forward(): |action|=0.000e+00 |value|=0.000e+00 |log_prob|=0.000e+00 |regime|=0.000e+00
+
+----------------------------------------------------------------------------------------------------
+STAGE 10 :: MARKET ENVIRONMENT STEP  (real prices, real costs)
+----------------------------------------------------------------------------------------------------
+  action in                 (10,)  [0.050975 0.102448 0.06665  0.133119 0.092723 0.168159] ...  [min=0.028192 max=0.168159 mean=0.100000 std=0.046025]
+  _clip_weights: clip to +/-0.3 then renormalise (long-only, sum->1)
+    n weights above cap = 0   clipped sum = 1.000000 -> divide by it
+    new_weights = [0.050975 0.102448 0.06665  0.133119 0.092723 0.16816 ] ...  [min=0.028192 max=0.168160 mean=0.100000 std=0.046025]
+  turnover = sum|w_new - w_old| = 0.595799   (w_old sum = 1.0000)
+  transaction cost = 0.001 * turnover * PV = 593.83 LKR
+  slippage         = 0.0005 * turnover * PV = 296.91 LKR      total = 890.74 LKR
+
+  REAL PRICES used for the return:
+      P(2021-03-24)  P(2021-03-25)  simple return       weight  contribution
+COMB      82.000000      82.500000       0.006098     0.050975      0.000311
+DFCC      60.000000      59.600000      -0.006667     0.102448     -0.000683
+HNB      100.000000      99.600000      -0.004000     0.066650     -0.000267
+NDB       80.400000      80.900000       0.006219     0.133119      0.000828
+PABC      15.000000      14.600000      -0.026667     0.092723     -0.002473
+SEYB      45.000000      43.300000      -0.037778     0.168160     -0.006353
+UBC       10.400000      10.200000      -0.019231     0.061441     -0.001182
+NTB       54.000000      54.000000       0.000000     0.165265      0.000000
+  ... 10 assets total.  asset_returns: [ 0.006098 -0.006667 -0.004     0.006219 -0.026667 -0.037778] ...  [min=-0.037778 max=0.006219 mean=-0.010867 std=0.015476]
+
+  portfolio_return = w . r = -0.01368524  (-1.3685 %)
+  portfolio_value  = 996,688.88 * (1 + -0.013685) - 890.74 = 982,158.22 LKR
+  done = False   (env.n_steps=541, current_step now 4)
+
+----------------------------------------------------------------------------------------------------
+STAGE 11 :: REWARD CALCULATION   [src/environment/reward.py]
+----------------------------------------------------------------------------------------------------
+  Net reward = rolling Sharpe  +  EVaR penalty  +  cost penalty
+  buffer length before this step = 3
+  daily_rf = (1+0.06)^(1/252)-1 = 0.00023125
+  return buffer (n=4) = [ 0.002017 -0.024663  0.023003 -0.013685]
+    excess = r - daily_rf ; mean=-0.00356332  std=0.01791880
+    Sharpe = mean/std*sqrt(252) = -3.156790
+  EVaR penalty: needs >= sharpe_window(20) observations -> INACTIVE (0.0) at this stage
+  cost penalty = -(tc_rate*turnover + turnover_penalty*turnover^2)
+               = -(0.001*0.595799 + 0.001*0.595799^2) = -0.00095077
+
+  COMPONENTS: sharpe=-3.156790  evar=0.000000  cost=-0.000951
+  NET REWARD r_3 = -3.157741
+
+----------------------------------------------------------------------------------------------------
+STAGE 12 :: BACKPROPAGATION + PARAMETER UPDATE (PPO, joint end-to-end)
+----------------------------------------------------------------------------------------------------
+  NOTE: the real trainer buffers rollout_length=256 steps before updating.
+        Here we update after EVERY window (batch of 1) as requested, using the same
+        RewardNormalizer / compute_gae / PPO-loss code paths.
+
+  12a) RewardNormalizer: discounted acc = -3.157741, running std = 5.630349 (count=4.0001)
+       scaled reward = -3.157741 / 5.630349 = -0.560843
+
+  12b) GAE(gamma=0.99, lambda=0.95) on T=1
+       V(s_t)=0.192745   V(s_t+1)=0.174719   done=0.0
+       delta = r + gamma*V(s_t+1)*(1-done) - V(s_t) = -0.560843 + 0.99*0.174719 - 0.192745 = -0.580616
+       advantage = -0.580616   return (target for critic) = -0.387871
+       trainer then calls normalize_advantages() -> nan
+       *** with a single sample, (adv-adv.mean())/(adv.std()+1e-8) is 0/nan because torch's
+       std uses ddof=1 -> undefined for n=1. We therefore keep the RAW advantage for this
+       1-step demo so the policy term is visible. (With rollout_length=256 as the real
+       trainer uses, the normalisation is well defined.)
+
+  12c) PPO epochs (n_epochs=10), agent.train() -> dropout active
+
+    --- epoch 1 in full detail ---
+    evaluate_actions() re-encodes the SAME window with dropout on:
+      old log_prob (stored) = -8.487999
+      new log_prob          = -8.470164
+      ratio = exp(new-old)  = 1.017995
+      advantage             = -0.580616
+      surr1 = ratio*A       = -0.591064
+      surr2 = clip(ratio,0.8,1.2)*A = -0.591064
+      policy_loss = -min(surr1,surr2) = 0.591064
+      V_new = -0.057832, target return = -0.387871 -> value_loss = 0.108926
+      entropy = 9.189639 -> entropy_loss = -9.189639
+      total = 0.591064 + 0.5*0.108926 + 0.01*-9.189639 = 0.553630
+    backward() gradient norms per component:
+      regime_encoder   ||g|| = 1.482883e+01
+      actor            ||g|| = 1.924875e+01
+      critic           ||g|| = 6.187025e+00
+      TOTAL ||g|| = 2.507365e+01  -> clip_grad_norm_(max=0.5) returned 2.507364e+01  (CLIPPED, scale=0.0199)
+    learning rates at this step: encoder=4.500e-06 actor=9.000e-06 critic=9.000e-06
+      (LambdaLR linear warmup over 1000 steps; scheduler step counter is now 31)
+    epoch  2: loss=  0.64331 (pi= 0.59378 V=  0.28284 H= -9.1897) ratio=1.02268 ||g||=3.4088e+01 lr_actor=9.300e-06
+    epoch  3: loss=  1.02849 (pi= 0.60153 V=  1.03771 H= -9.1897) ratio=1.03602 ||g||=5.8050e+01 lr_actor=9.600e-06
+    epoch  4: loss=  0.64463 (pi= 0.58641 V=  0.30023 H= -9.1898) ratio=1.00998 ||g||=3.4425e+01 lr_actor=9.900e-06
+    epoch  5: loss=  0.58848 (pi= 0.57907 V=  0.20261 H= -9.1898) ratio=0.99734 ||g||=3.3608e+01 lr_actor=1.020e-05
+    epoch  6: loss=  0.66213 (pi= 0.58408 V=  0.33989 H= -9.1899) ratio=1.00597 ||g||=3.8469e+01 lr_actor=1.050e-05
+    epoch  7: loss=  0.64405 (pi= 0.57111 V=  0.32967 H= -9.1899) ratio=0.98363 ||g||=3.9767e+01 lr_actor=1.080e-05
+    epoch  8: loss=  0.61435 (pi= 0.58058 V=  0.25133 H= -9.1900) ratio=0.99994 ||g||=3.1665e+01 lr_actor=1.110e-05
+    epoch  9: loss=  0.73529 (pi= 0.59422 V=  0.46593 H= -9.1900) ratio=1.02344 ||g||=4.8741e+01 lr_actor=1.140e-05
+    epoch 10: loss=  0.53673 (pi= 0.58851 V=  0.08023 H= -9.1901) ratio=1.01360 ||g||=2.7057e+01 lr_actor=1.170e-05
+
+  12d) PARAMETER CHANGE after 10 epochs on window 4
+    parameter                                      ||before||    ||delta||   max|delta|
+    encoder.vsn.selection_grn.fc1.weight             4.730959 4.194658e-04 3.033131e-05
+    encoder.vsn.var_proj.weight                     17.885443 1.743080e-03 4.890561e-05
+    encoder.lstm.weight_ih_l0                       10.617671 2.846958e-03 4.854985e-05
+    encoder.mha.W_q.weight                           6.515884 1.864985e-03 3.753603e-05
+    encoder.macro_graph.learnable_adj                5.000000 0.000000e+00 0.000000e+00
+    encoder.macro_graph.gat0.W                       1.960994 1.269804e-03 4.258752e-05
+    encoder.fusion.0.weight                          6.538777 2.251053e-03 4.455447e-05
+    encoder.regime_temperature                       0.999993 2.384186e-05 2.384186e-05
+    actor.mean_head.weight                           0.009988 4.837348e-04 9.888895e-05
+    actor.log_std                                    1.581059 2.433969e-04 1.123548e-04
+    critic.value_head.weight                         0.999979 4.262041e-04 6.615371e-05
+    regime_temperature: 0.99999338 -> 0.99996954
+    actor.log_std[0]:   -0.49992445 -> -0.49988869
+
+  12e) same window re-run through the TUNED model (deterministic):
+    V(s) before update = 0.192745   after = -0.056641   (target was -0.387871)
+    regime_probs before = [0.268287 0.474597 0.257116]   after = [0.264734 0.478778 0.256488]
+    weights max before = 0.168159  after = 0.100375
+
+####################################################################################################
+WINDOW 5 / 5   |   env.current_step = 4   |   window 2021-02-10 -> 2021-03-25   |   reward over 2021-03-25 -> 2021-03-26
+####################################################################################################
+
+----------------------------------------------------------------------------------------------------
+STAGE 1 :: OBSERVATION TENSOR  (env -> agent)
+----------------------------------------------------------------------------------------------------
+  obs['features']            (30, 150)      (window_size=30, n_features=150)
+  after .unsqueeze(0)        (1, 30, 150)  (batch, T, N*F)
+  encoder reshape+permute -> (1, 10, 30, 15)  (batch, n_assets, T, F_per_asset)
+     view(B,T,N,F) then permute(0,2,1,3): column (asset i, feature j) of the flat
+     150-vector lands at x[0, i, :, j] -- this is why reorder_per_asset() is required.
+
+  the window SLID one trading day: row 2021-02-09 dropped off the front,
+  row 2021-03-25 entered at the back. Last 3 rows of x[0,0] ('COMB'):
+                 f0       f1       f2       f3       f4       f5       f6       f7       f8       f9      f10      f11      f12      f13      f14
+2021-03-23   0.0272  -0.2975  -0.3652  -0.0417  -0.1781  -0.2131   0.1141  -0.1932   0.0095   0.0191  -0.0292   0.1180  -0.8656  -0.7311  -0.6551
+2021-03-24   0.6936  -0.3095  -0.2824  -0.0251   0.3835  -0.0172   0.1735   0.1892   0.0621   0.0281   0.1207   0.7470  -0.0003  -0.2949  -0.4024
+2021-03-25   0.2017  -0.3203  -0.3654  -0.1618   0.3213   0.2499   0.5086   0.5779   0.1179   0.0472   0.2496   0.9997  -0.0507  -0.3801  -0.4607
+  (the other 29 rows are identical to window 4 -- 29/30 of the input is shared,
+   which is why consecutive decisions are highly correlated)
+
+  verify against norm_train: max|x[0,0] - norm_train[COMB cols][4:34]| = 5.786e-08
+
+  whole-tensor stats: [-0.654151  0.120242  0.558126  0.961655 -0.122179 -1.407492] ...  [min=-21.382816 max=10.097598 mean=-0.254697 std=0.980809]
+
+----------------------------------------------------------------------------------------------------
+STAGE 2 :: VARIABLE SELECTION NETWORK (V-VSN)   [src/models/vsn_lstm.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   x_flat            (10, 30, 15)  = (B*N=10, T=30, F=15)
+          all 10 assets are folded into the batch -> ONE shared VSN, channel-independent
+
+  2a) selection_grn : GatedResidualNetwork(in=15, hidden=64, out=15)
+      flat input                (300, 15)  (B*N*T rows)
+      -> raw selection logits   (300, 15)
+      -> softmax over F         (300, 15)   sums to 1 per (asset,timestep)
+
+      logits  for 'COMB' at t=29: [ 0.4086 -0.7272 -1.2656 -1.0687  0.6738  0.4237  0.6081  1.0053  0.1616 -0.1888  0.2278  2.5314 -0.4308 -1.0145 -1.3448]
+      WEIGHTS for 'COMB' at t=29:
+        f0  COMB                         input=   0.2017   weight=0.054174
+        f1  COMB_vol_5d                  input=  -0.3203   weight=0.017398
+        f2  COMB_vol_10d                 input=  -0.3654   weight=0.010155
+        f3  COMB_vol_20d                 input=  -0.1618   weight=0.012365
+        f4  COMB_mom_5d                  input=   0.3213   weight=0.070628
+        f5  COMB_mom_10d                 input=   0.2499   weight=0.054996
+        f6  COMB_mom_20d                 input=   0.5086   weight=0.066137
+        f7  COMB_rsi                     input=   0.5779   weight=0.098389
+        f8  COMB_macd                    input=   0.1179   weight=0.042317
+        f9  COMB_macd_signal             input=   0.0472   weight=0.029809
+        f10 COMB_macd_hist               input=   0.2496   weight=0.045214
+        f11 COMB_bb_pct                  input=   0.9997   weight=0.452582
+        f12 COMB_vol_ratio_5d            input=  -0.0507   weight=0.023401
+        f13 COMB_vol_ratio_10d           input=  -0.3801   weight=0.013053
+        f14 COMB_vol_ratio_20d           input=  -0.4607   weight=0.009382
+        sum of weights = 1.000000
+        top-3 selected features: _bb_pct=0.4526, _rsi=0.0984, _mom_5d=0.0706
+
+  2b) var_proj : Linear(15, 15*64=960, bias=False) then view(.,15,64)
+      -> projected              (300, 15, 64)   (one 64-dim embedding per input variable)
+      projected[COMB t=29, f0, :6] = [ 0.01528 -0.12599 -0.02362 -0.24351  0.38238  0.13789]
+
+  2c) weighted sum over the F variable embeddings
+      OUTPUT  selected          (10, 30, 64)  = (B*N, T, vsn_hidden=64)
+      var_weights               (10, 30, 15)
+      selected[COMB, t=29] = [-0.156519 -0.162301  0.075259 -0.197446 -0.113325  0.085821 -0.044849  0.186745] ...  [min=-0.217478 max=0.313706 mean=0.009814 std=0.130712]
+      manual recomputation matches module: max abs diff = 0.000e+00
+      cross-asset spread of selected[:, -1, :] std over assets = 0.369425  (0 would mean assets are indistinguishable)
+
+----------------------------------------------------------------------------------------------------
+STAGE 3 :: LSTM  (temporal dynamics)   [src/models/vsn_lstm.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   selected          (10, 30, 64)
+  nn.LSTM(input_size=64, hidden_size=128, num_layers=2, batch_first=True, dropout=0.1)
+  init: weight_hh orthogonal per gate block, weight_ih xavier, forget-gate bias = 1.0
+        check bias_ih_l0 forget block [128:256] mean = 1.0000
+
+  OUTPUT  lstm_out          (10, 30, 128)   (B*N, T, lstm_hidden=128)
+          h_n               (2, 10, 128)    (num_layers, B*N, hidden)
+          c_n               (2, 10, 128)
+    lstm_out[COMB, t=29]  = [ 0.301204 -0.378231 -0.418851  0.1205    0.350347 -0.20386   0.038301 -0.514822] ...  [min=-0.605862 max=0.673232 mean=0.024466 std=0.357974]
+    lstm_out[COMB, t=0]      = [ 0.000031 -0.002374  0.0014   -0.000149 -0.004087  0.000313] ...  [min=-0.006821 max=0.009084 mean=0.000345 std=0.003186]
+    LayerNorm -> normed[COMB, t=29] = [ 0.773038 -1.12495  -1.238383  0.268245  0.910291 -0.637833  0.038655 -1.506481] ...  [min=-1.760813 max=1.812278 mean=0.000003 std=0.999964]
+    output_proj Linear(128,128) -> [-0.884949  0.277145 -1.259082  0.379635 -0.068144  1.223485 -0.745023 -0.817261] ...  [min=-1.402897 max=1.727143 mean=0.063922 std=0.655002]
+    (trainer note: no hidden state is carried between windows -- each window is self-contained)
+
+----------------------------------------------------------------------------------------------------
+STAGE 4 :: TEMPORAL MULTI-HEAD ATTENTION   [src/models/temporal_attention.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   output_proj result  (10, 30, 128)
+  d_model=128, num_heads=4, d_k=32, ffn_dim=256
+
+  4a) positional encoding (sinusoidal, added): pe[0,0,:6] = [0. 1. 0. 1. 0. 1.]
+      x + pe -> (10, 30, 128)
+  4b) Q = W_q(x): (10, 4, 30, 32)  (B*N, heads, T, d_k) ; same for K, V
+      Q[COMB, head0, t=29, :6] = [ 0.5729 -0.8789  0.1835  0.4676 -0.2973  0.3366]
+  4c) scores = QK^T/sqrt(d_k) -> (10, 4, 30, 30)
+      scores[COMB, head0, t=29, :8] = [0.2902 0.281  0.3708 0.4359 0.4478 0.4052 0.35   0.3253]
+  4d) attn_weights = softmax(scores) -> (10, 4, 30, 30)
+      attention paid by the LAST timestep (2021-03-25) across the 30-day window, head 0:
+        t00=0.0299  t01=0.0296  t02=0.0324  t03=0.0346  t04=0.0350
+        t05=0.0335  t06=0.0317  t07=0.0310  t08=0.0320  t09=0.0342
+        t10=0.0361  t11=0.0360  t12=0.0343  t13=0.0323  t14=0.0318
+        t15=0.0331  t16=0.0354  t17=0.0372  t18=0.0373  t19=0.0361
+        t20=0.0345  t21=0.0334  t22=0.0329  t23=0.0327  t24=0.0326
+        t25=0.0324  t26=0.0323  t27=0.0322  t28=0.0319  t29=0.0315
+      sum=1.000000   argmax=t18 (2021-03-09) weight=0.0373
+  4e) context = attn @ V, concat heads, W_o, +residual, LayerNorm -> (10, 30, 128)
+  4f) FFN Linear(128,256)-GELU-Linear(256,128) + residual + LayerNorm
+      OUTPUT attn_out       (10, 30, 128)
+      attn_out[COMB, t=29] = [-2.329949 -1.202271 -2.081387  1.692081 -0.426634 -0.097481 -1.299632 -0.705737] ...  [min=-2.661979 max=2.518302 mean=-0.000000 std=0.999996]
+      manual MHA sub-block matches module: max abs diff = 0.000e+00
+
+  4g) take LAST timestep only -> per-asset temporal embedding
+      H = (1, 10, 128)  (batch, n_assets, lstm_hidden)
+      H[0,0] ('COMB') = [-2.329949 -1.202271 -2.081387  1.692081 -0.426634 -0.097481 -1.299632 -0.705737] ...  [min=-2.661979 max=2.518302 mean=-0.000000 std=0.999996]
+      H[0,1] ('DFCC') = [-2.340202 -1.240587 -2.373449  1.597969 -0.222377  0.203786] ...  [min=-2.710878 max=2.248288 mean=-0.000001 std=0.999997]
+      cross-asset std (mean over dims) = 0.486372
+
+----------------------------------------------------------------------------------------------------
+STAGE 5 :: MACRO GRAPH PRIOR (GAT)   [src/models/macro_graph_prior.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   H                 (1, 10, 128)  -> 10 graph NODES (one per asset), n_macro=0
+  adjacency: learnable_adj (10, 10), all entries = [0.5] -> sigmoid = 0.6225 > 0
+             build_adjacency() -> adj (10, 10), sum = 100 of 100 -> FULLY CONNECTED graph (every bank linked to every bank)
+  node_proj Linear(128,64) -> (1, 10, 64)
+    h0[0,0] = [ 0.14398   0.256914 -0.097362  0.989926  0.633534 -0.16805   0.281371  0.490052] ...  [min=-1.244974 max=1.331314 mean=0.074118 std=0.592147]
+
+  GAT layer 0: in=64 out=64 heads=2 concat=True -> output_dim=128
+    W       (2, 64, 64)   a_src (2, 64, 1)   a_dst (2, 64, 1)
+    e_ij = LeakyReLU(0.2)(a_src.Wh_i + a_dst.Wh_j), masked by adj, softmax over j
+    attention  (1, 2, 10, 10)  (batch, heads, N, N)
+    node 0 ('COMB') attention over its 10 neighbours (head 0):
+      first 8: [0.09809 0.1017  0.09896 0.10129 0.09624 0.09913 0.09616 0.09142]
+      sum=1.000000  self-weight=0.09809  max=node 9 ('ABL') 0.11377  min=0.09142  uniform would be 0.10000
+    after ELU + LayerNorm + residual: h (1, 10, 128)   cross-node std = 0.167103
+
+  GAT layer 1: in=128 out=64 heads=2 concat=False -> output_dim=64
+    W       (2, 128, 64)   a_src (2, 64, 1)   a_dst (2, 64, 1)
+    e_ij = LeakyReLU(0.2)(a_src.Wh_i + a_dst.Wh_j), masked by adj, softmax over j
+    attention  (1, 2, 10, 10)  (batch, heads, N, N)
+    node 0 ('COMB') attention over its 10 neighbours (head 0):
+      first 8: [0.09986 0.09992 0.09813 0.09951 0.09947 0.10565 0.09892 0.09276]
+      sum=1.000000  self-weight=0.09986  max=node 5 ('SEYB') 0.10565  min=0.09276  uniform would be 0.10000
+    after ELU + LayerNorm + residual: h (1, 10, 64)   cross-node std = 0.099863
+
+  OUTPUT  node_embeddings   (1, 10, 64)
+          graph_embedding   (1, 64)  (mean-pool + readout MLP; NOT used downstream in this architecture)
+    node_embeddings[0,0] = [ 0.235515 -0.051341  0.067827 -0.914551  0.675256  0.242601  0.588551 -1.718526] ...  [min=-2.216377 max=2.538015 mean=0.027173 std=1.117700]
+    manual == module: nodes 0.000e+00, graph 0.000e+00
+
+----------------------------------------------------------------------------------------------------
+STAGE 6 :: PER-ASSET FUSION  ->  h_asset ,  MEAN-POOL  ->  h_market
+----------------------------------------------------------------------------------------------------
+  concat[H(128), node_emb(64)] -> fused (1, 10, 192)
+  fusion = Linear(192,128) -> GELU -> Dropout(0.1) -> Linear(128,128) -> LayerNorm
+  OUTPUT  h_asset           (1, 10, 128)   -> goes to the ACTOR
+          h_market          (1, 128)   -> goes to the CRITIC + regime classifier
+    h_asset[0,0] ('COMB')  = [ 0.505978 -0.918958  0.141769  0.118769  1.315751 -0.951406  1.576587 -1.296838] ...  [min=-2.766001 max=2.346609 mean=0.000007 std=0.999884]
+    h_asset[0,1] ('DFCC') = [-0.073317 -0.456137  0.619543  0.303098  1.321741 -0.66453 ] ...  [min=-2.831615 max=2.606624 mean=0.000006 std=0.999881]
+    h_market[0]                = [ 0.202167 -0.614421  0.044105  0.54      1.186751 -1.120658  0.884539 -1.600506] ...  [min=-2.533480 max=2.117834 mean=0.000006 std=0.914073]
+    cross-asset std of h_asset = 0.405658
+
+----------------------------------------------------------------------------------------------------
+STAGE 7 :: REGIME CLASSIFIER  (Bull / Bear / Sideways, differentiable)
+----------------------------------------------------------------------------------------------------
+  INPUT   h_market          (1, 128)
+  Linear(128,64) -> GELU -> Dropout -> Linear(64,3)
+  learnable regime_temperature = 0.999970 (clamped min 0.1)
+  OUTPUT  regime_logits     (1, 3) = [-0.269367  0.293855 -0.314294]
+          regime_probs      = softmax(logits/T) = [0.269366 0.473102 0.257532]   sum=1.000000
+          -> regime 1 (Bear) with p=0.4731
+          entropy = 1.056784 (max possible ln3=1.0986)
+
+----------------------------------------------------------------------------------------------------
+STAGE 8 :: ACTOR (policy pi)   [src/models/actor.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   h_asset (1, 10, 128) + regime_probs (1, 3)
+  trunk (SHARED across assets, applied on last dim):
+    Linear(128,256)+LayerNorm+ReLU+Dropout -> Linear(256,128)+LayerNorm+ReLU+Dropout
+    -> features (1, 10, 128)
+  regime_embed Linear(3,128) -> (1, 128), broadcast-added to every asset
+    regime_signal[0,:6] = [ 0.000827 -0.000831  0.000657 -0.000526 -0.001177 -0.00005 ]
+  mean_head Linear(128,1) -> one logit per asset (1, 10)
+  mean = logit_scale*tanh(raw/logit_scale), logit_scale=5.0
+    raw_head[0,:8] = [0.007465 0.004989 0.007007 0.003281 0.001643 0.003358 0.003984 0.000074]
+    mean[0]      = [0.007465 0.004989 0.007007 0.003281 0.001643 0.003358 0.003984 0.000074] ...  [min=0.000074 max=0.007465 mean=0.003957 std=0.002099]
+  log_std (learnable, (10,)) = [-0.499889 -0.49988  -0.499837 -0.500025 -0.499939] ...  [min=-0.500163 max=-0.499829 mean=-0.499921 std=0.000099]  -> std = 0.606598
+
+  a) Gaussian policy N(mean, std) per asset, sample via rsample()
+     raw_action (1, 10) = [-0.072499  0.327647  0.738313  0.192239  0.283239  0.617399  0.312699 -1.25322 ] ...  [min=-1.253220 max=1.181098 mean=0.229161 std=0.607907]
+     log_prob   = sum_i log N(a_i; mu_i, sigma_i) = -9.883352
+     entropy    = sum_i 0.5*log(2*pi*e*sigma_i^2) = 9.190172
+     manual entropy check: 9.190499
+  b) squash to allocation: allow_short=False -> SOFTMAX over 10 assets
+     action (portfolio weights) = [0.063358 0.094532 0.142538 0.082561 0.090426 0.126304 0.09313  0.019454] ...  [min=0.019454 max=0.221937 mean=0.100000 std=0.051813]
+     sum=1.000000  max=0.221937 (asset 9 = ABL)
+     equal weight would be 1/10 = 0.100000
+
+----------------------------------------------------------------------------------------------------
+STAGE 9 :: CRITIC (value V)   [src/models/critic.py]
+----------------------------------------------------------------------------------------------------
+  INPUT   h_market (1, 128) + regime_probs (1, 3)
+  Linear(128,256)+LN+ReLU+Drop -> Linear(256,128)+LN+ReLU+Drop -> +regime_embed(3->128) -> Linear(128,1)
+    critic features[0,:6] = [0.       0.       0.       0.788097 0.       0.      ]
+  OUTPUT  V(s) = -0.050020
+
+  cross-check vs agent.forward(): |action|=0.000e+00 |value|=0.000e+00 |log_prob|=0.000e+00 |regime|=0.000e+00
+
+----------------------------------------------------------------------------------------------------
+STAGE 10 :: MARKET ENVIRONMENT STEP  (real prices, real costs)
+----------------------------------------------------------------------------------------------------
+  action in                 (10,)  [0.063358 0.094532 0.142538 0.082561 0.090426 0.126304] ...  [min=0.019454 max=0.221937 mean=0.100000 std=0.051813]
+  _clip_weights: clip to +/-0.3 then renormalise (long-only, sum->1)
+    n weights above cap = 0   clipped sum = 1.000000 -> divide by it
+    new_weights = [0.063358 0.094532 0.142538 0.082561 0.090426 0.126304] ...  [min=0.019454 max=0.221937 mean=0.100000 std=0.051813]
+  turnover = sum|w_new - w_old| = 0.496870   (w_old sum = 1.0000)
+  transaction cost = 0.001 * turnover * PV = 488.01 LKR
+  slippage         = 0.0005 * turnover * PV = 244.00 LKR      total = 732.01 LKR
+
+  REAL PRICES used for the return:E:\Learning\4th 1st Semester\Research\Regime detection portfolio\src\training\advantage.py:65: UserWarning: std(): degrees of freedom is <= 0. Correction should be strictly less than the reduction factor (input numel divided by output numel). (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\aten\src\ATen\native\ReduceOps.cpp:1879.)
+  return (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+
+      P(2021-03-25)  P(2021-03-26)  simple return       weight  contribution
+COMB      82.500000      83.100000       0.007273     0.063358      0.000461
+DFCC      59.600000      59.000000      -0.010067     0.094532     -0.000952
+HNB       99.600000     100.000000       0.004016     0.142538      0.000572
+NDB       80.900000      81.000000       0.001236     0.082561      0.000102
+PABC      14.600000      14.500000      -0.006849     0.090426     -0.000619
+SEYB      43.300000      43.200000      -0.002309     0.126304     -0.000292
+UBC       10.200000      10.300000       0.009804     0.093130      0.000913
+NTB       54.000000      53.900000      -0.001852     0.019454     -0.000036
+  ... 10 assets total.  asset_returns: [ 0.007273 -0.010067  0.004016  0.001236 -0.006849 -0.002309] ...  [min=-0.010067 max=0.021858 mean=0.002311 std=0.008649]
+
+  portfolio_return = w . r = 0.00158691  (0.1587 %)
+  portfolio_value  = 982,158.22 * (1 + 0.001587) - 732.01 = 982,984.81 LKR
+  done = False   (env.n_steps=541, current_step now 5)
+
+----------------------------------------------------------------------------------------------------
+STAGE 11 :: REWARD CALCULATION   [src/environment/reward.py]
+----------------------------------------------------------------------------------------------------
+  Net reward = rolling Sharpe  +  EVaR penalty  +  cost penalty
+  buffer length before this step = 4
+  daily_rf = (1+0.06)^(1/252)-1 = 0.00023125
+  return buffer (n=5) = [ 0.002017 -0.024663  0.023003 -0.013685  0.001587]
+    excess = r - daily_rf ; mean=-0.00257952  std=0.01614738
+    Sharpe = mean/std*sqrt(252) = -2.535930
+  EVaR penalty: needs >= sharpe_window(20) observations -> INACTIVE (0.0) at this stage
+  cost penalty = -(tc_rate*turnover + turnover_penalty*turnover^2)
+               = -(0.001*0.496870 + 0.001*0.496870^2) = -0.00074375
+
+  COMPONENTS: sharpe=-2.535930  evar=0.000000  cost=-0.000744
+  NET REWARD r_4 = -2.536673
+
+----------------------------------------------------------------------------------------------------
+STAGE 12 :: BACKPROPAGATION + PARAMETER UPDATE (PPO, joint end-to-end)
+----------------------------------------------------------------------------------------------------
+  NOTE: the real trainer buffers rollout_length=256 steps before updating.
+        Here we update after EVERY window (batch of 1) as requested, using the same
+        RewardNormalizer / compute_gae / PPO-loss code paths.
+
+  12a) RewardNormalizer: discounted acc = -2.536673, running std = 5.082363 (count=5.0001)
+       scaled reward = -2.536673 / 5.082363 = -0.499113
+
+  12b) GAE(gamma=0.99, lambda=0.95) on T=1
+       V(s_t)=-0.050020   V(s_t+1)=-0.066035   done=0.0
+       delta = r + gamma*V(s_t+1)*(1-done) - V(s_t) = -0.499113 + 0.99*-0.066035 - -0.050020 = -0.514468
+       advantage = -0.514468   return (target for critic) = -0.564487
+       trainer then calls normalize_advantages() -> nan
+       *** with a single sample, (adv-adv.mean())/(adv.std()+1e-8) is 0/nan because torch's
+       std uses ddof=1 -> undefined for n=1. We therefore keep the RAW advantage for this
+       1-step demo so the policy term is visible. (With rollout_length=256 as the real
+       trainer uses, the normalisation is well defined.)
+
+  12c) PPO epochs (n_epochs=10), agent.train() -> dropout active
+
+    --- epoch 1 in full detail ---
+    evaluate_actions() re-encodes the SAME window with dropout on:
+      old log_prob (stored) = -9.883352
+      new log_prob          = -9.908706
+      ratio = exp(new-old)  = 0.974965
+      advantage             = -0.514468
+      surr1 = ratio*A       = -0.501588
+      surr2 = clip(ratio,0.8,1.2)*A = -0.501588
+      policy_loss = -min(surr1,surr2) = 0.501588
+      V_new = -0.189010, target return = -0.564487 -> value_loss = 0.140983
+      entropy = 9.190172 -> entropy_loss = -9.190172
+      total = 0.501588 + 0.5*0.140983 + 0.01*-9.190172 = 0.480178
+    backward() gradient norms per component:
+      regime_encoder   ||g|| = 1.999880e+01
+      actor            ||g|| = 2.581651e+01
+      critic           ||g|| = 6.950863e+00
+      TOTAL ||g|| = 3.338801e+01  -> clip_grad_norm_(max=0.5) returned 3.338800e+01  (CLIPPED, scale=0.0150)
+    learning rates at this step: encoder=6.000e-06 actor=1.200e-05 critic=1.200e-05
+      (LambdaLR linear warmup over 1000 steps; scheduler step counter is now 41)
+    epoch  2: loss=  0.69885 (pi= 0.51155 V=  0.55841 H= -9.1902) ratio=0.99433 ||g||=4.3923e+01 lr_actor=1.230e-05
+    epoch  3: loss=  0.63152 (pi= 0.51118 V=  0.42448 H= -9.1903) ratio=0.99362 ||g||=4.2587e+01 lr_actor=1.260e-05
+    epoch  4: loss=  0.66346 (pi= 0.51639 V=  0.47795 H= -9.1903) ratio=1.00374 ||g||=4.5478e+01 lr_actor=1.290e-05
+    epoch  5: loss=  0.50348 (pi= 0.52496 V=  0.14086 H= -9.1903) ratio=1.02039 ||g||=3.5465e+01 lr_actor=1.320e-05
+    epoch  6: loss=  0.42358 (pi= 0.51417 V=  0.00263 H= -9.1904) ratio=0.99941 ||g||=2.6117e+01 lr_actor=1.350e-05
+    epoch  7: loss=  0.45452 (pi= 0.51579 V=  0.06127 H= -9.1904) ratio=1.00256 ||g||=3.1468e+01 lr_actor=1.380e-05
+    epoch  8: loss=  0.66042 (pi= 0.51912 V=  0.46640 H= -9.1904) ratio=1.00905 ||g||=4.8198e+01 lr_actor=1.410e-05
+    epoch  9: loss=  0.46147 (pi= 0.52084 V=  0.06506 H= -9.1905) ratio=1.01240 ||g||=2.9652e+01 lr_actor=1.440e-05
+    epoch 10: loss=  0.50664 (pi= 0.49607 V=  0.20495 H= -9.1905) ratio=0.96424 ||g||=4.2365e+01 lr_actor=1.470e-05
+
+  12d) PARAMETER CHANGE after 10 epochs on window 5
+    parameter                                      ||before||    ||delta||   max|delta|
+    encoder.vsn.selection_grn.fc1.weight             4.730978 7.503383e-04 4.908442e-05
+    encoder.vsn.var_proj.weight                     17.885437 3.055695e-03 6.730855e-05
+    encoder.lstm.weight_ih_l0                       10.617661 4.530694e-03 6.928667e-05
+    encoder.mha.W_q.weight                           6.515872 2.846132e-03 5.782954e-05
+    encoder.macro_graph.learnable_adj                5.000000 0.000000e+00 0.000000e+00
+    encoder.macro_graph.gat0.W                       1.960999 2.203741e-03 6.314926e-05
+    encoder.fusion.0.weight                          6.538799 3.816646e-03 7.505808e-05
+    encoder.regime_temperature                       0.999970 3.933907e-05 3.933907e-05
+    actor.mean_head.weight                           0.010016 4.161857e-04 8.873249e-05
+    actor.log_std                                    1.580890 2.984657e-04 1.519620e-04
+    critic.value_head.weight                         0.999945 7.193214e-04 1.037940e-04
+    regime_temperature: 0.99996954 -> 0.99993020
+    actor.log_std[0]:   -0.49988869 -> -0.49980560
+
+  12e) same window re-run through the TUNED model (deterministic):
+    V(s) before update = -0.050020   after = -0.513168   (target was -0.564487)
+    regime_probs before = [0.269366 0.473102 0.257532]   after = [0.263657 0.476317 0.260026]
+    weights max before = 0.221937  after = 0.100305
+
+====================================================================================================
+SUMMARY OF THE 5 WINDOWS
+====================================================================================================
+ window       date  regime  p_regime    w_max w_argmax     value  port_return   sharpe_c    cost_c   evar_c     reward  advantage             pv
+      1 2021-03-19       1  0.475782 0.293484      UBC  0.156049     0.002017   0.002017 -0.002000 0.000000   0.000017   0.028919 1000517.110019
+      2 2021-03-22       1  0.481855 0.186556      NDB  0.242913    -0.024663 -13.749353 -0.001125 0.000000 -13.750478  -1.978477  974831.696087
+      3 2021-03-23       1  0.481551 0.175182     PABC  0.210333     0.023003  -0.091360 -0.000538 0.000000  -0.091897  -0.019403  996688.882255
+      4 2021-03-24       1  0.474597 0.168159     SEYB  0.192745    -0.013685  -3.156790 -0.000951 0.000000  -3.157741  -0.580616  982158.218877
+      5 2021-03-25       1  0.473102 0.221937      ABL -0.050020     0.001587  -2.535930 -0.000744 0.000000  -2.536673  -0.514468  982984.806962
+
+portfolio value path: 1,000,000 -> 1,000,517 -> 974,832 -> 996,689 -> 982,158 -> 982,985
+cumulative return over the 5 windows: -1.701519%
+
+====================================================================================================
+SHAPE PIPELINE, END TO END (one window)
+====================================================================================================
+
+  data/raw/*.csv                      836 dates x 10 banks (close price + share volume)
+  engineer_features                   (816, 150)            15 indicators per bank
+  reorder_per_asset                   (816, 150)            columns grouped per bank
+  fit_normalize (train only)          (571, 150)            z-score
+  create_windows                      (542, 30, 150)        one row per trading decision
+    |
+    +-- env.reset()/step() serves     (30, 150)
+        unsqueeze(0)                  (1, 30, 150)
+        encoder view+permute          (1, 10, 30, 15)       B, N_assets, T, F_per_asset
+        reshape (fold assets)         (10, 30, 15)
+  VSN   selection_grn + softmax       (10, 30, 15)         variable importance weights
+        var_proj + weighted sum       (10, 30, 64)
+  LSTM  2 layers                      (10, 30, 128)  (+ h_n, c_n = (2, 10, 128))
+        LayerNorm + output_proj       (10, 30, 128)
+  MHA   pos-enc, 4 heads              scores/attn (10, 4, 30, 30) -> (10, 30, 128)
+        FFN + residual + LayerNorm    (10, 30, 128)
+        take t = T-1                  (1, 10, 128)   = H, per-asset temporal embedding
+  GAT   node_proj                     (1, 10, 64)
+        layer 0 (2 heads, concat)     attn (1, 2, 10, 10) -> (1, 10, 128)
+        layer 1 (2 heads, mean)       attn (1, 2, 10, 10) -> (1, 10, 64)  = node_embeddings
+  FUSE  cat(H, node_emb)              (1, 10, 192) -> h_asset (1, 10, 128)
+        mean over assets              h_market (1, 128)
+  REGIME  Linear->GELU->Linear        regime_logits (1, 3) -> regime_probs (1, 3)
+  ACTOR   trunk + regime + head       mean (1, 10) -> sample raw_action (1, 10)
+          softmax                     action / portfolio weights (1, 10), sums to 1
+  CRITIC  trunk + regime + head       V(s) scalar
+  ENV     clip/renorm, prices t->t+1  portfolio_return scalar, costs in LKR
+  REWARD  Sharpe + EVaR + cost        net_reward scalar
+  PPO     GAE -> ratio -> clipped L   one joint backward through ALL 640,657 parameters
+
+
+====================================================================================================
+KEY OBSERVATIONS FROM THIS RUN
+====================================================================================================
+
+ 1. DATA SIZE. n_assets was requested as 47 (main.py's default) but the raw CSVs only contain
+    10 banking counters, so the model is built with 10 assets x 15 features = 150 inputs,
+    not the 705 the --n-assets 47 default implies. The assertion in main.py still passes because it
+    compares against the *actual* column count.
+
+ 2. LEARNING RATE IS 0 ON THE FIRST UPDATE. LambdaLR computes lr_lambda(0) = 0/1000 = 0 at
+    construction, so the very first optimizer.step() applies a zero-size step: gradients are
+    computed and thrown away. With total_timesteps=10000 the scheduler's total_steps is
+    390, far below warmup_steps=1000, so the LR ramps to at most 39% of base
+    (1.17e-04 for actor/critic, 5.85e-05 for the encoder) and the cosine
+    decay branch is never reached. That is why the ||delta|| column above is ~1e-4 on norms of ~5-18.
+
+ 3. EVERY SINGLE UPDATE HIT THE GRADIENT CLIP. Across the 50 backward passes traced here the raw
+    total ||g|| ranged 0.683 .. 173.8 (median 34.09) against max_grad_norm=0.5, so the update
+    direction was rescaled by 0.0029x .. 0.732x -- i.e. 1.4x to 348x shrinkage, and the amount of
+    shrinkage varies ~100x from step to step. Because clip_grad_norm_ is applied to
+    encoder+actor+critic jointly, a large value-loss gradient shrinks the actor's update along with
+    its own. This is the effect RewardNormalizer was added to fight, but the rolling-Sharpe reward
+    (item 4) reintroduces it.
+
+ 4. THE ROLLING SHARPE REWARD IS UNUSABLE FOR THE FIRST ~20 STEPS OF EVERY ROLLOUT.
+    compute_sharpe_component divides by the std of the return buffer, which holds only 1, 2, 3 ...
+    samples right after reset(). Window 1 returns the raw return (+0.002017); window 2 gets
+    -13.7494 from just two observations. The reward therefore swings by 4 orders of magnitude
+    between consecutive steps for reasons unrelated to the policy. EVaR is separately inactive for
+    the first sharpe_window=20 steps.
+
+ 5. THE GAT IS NEAR-UNIFORM AT INIT. build_adjacency() with the default learnable_adj = 0.5
+    everywhere yields sigmoid(0.5) = 0.62 > 0, so adj is all-ones: a fully connected graph. The
+    resulting attention rows sat in 0.093-0.116 against a uniform 1/10 = 0.100, i.e. the graph block
+    is currently doing little more than mean-aggregation plus the residual. Also note
+    learnable_adj's ||delta|| is exactly 0 every window: build_adjacency() thresholds with
+    `(adj > 0).float()`, which is non-differentiable, so that 100-parameter tensor receives no
+    gradient and never trains.
+
+ 6. info["turnover"] IS ALWAYS 0. In MarketEnvironment.step, self.current_weights is reassigned to
+    new_weights before the info dict computes abs(new_weights - self.current_weights). The reward
+    path is unaffected (RewardCalculator gets old_weights explicitly from the trainer), but any
+    logging or analysis that reads info["turnover"] sees zero.
+
+ 7. WINDOW-TO-WINDOW OVERLAP IS 29/30. Consecutive observations differ by a single row, so
+    consecutive states, values and actions are strongly correlated -- worth remembering when
+    reading a 256-step rollout as if it were 256 independent samples.
+
+ 8. normalize_advantages() IS UNDEFINED FOR A 1-SAMPLE BATCH (torch std uses ddof=1 -> nan). Not a
+    bug at rollout_length=256; it only bites the per-window update used for this trace.
+
+
+TRACE COMPLETE

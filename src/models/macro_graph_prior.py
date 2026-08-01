@@ -137,6 +137,16 @@ class MacroGraphPrior(nn.Module):
         # GAT layers
         self.gat_layers = nn.ModuleList()
         self.gat_norms = nn.ModuleList()
+        # Residual projections — needed because concat=True on non-final
+        # layers makes output_dim = num_heads * hidden_dim != in_dim, so a
+        # plain shape-matched residual never fires. Without SOME residual
+        # path, stacked GAT layers over the (default fully-connected) graph
+        # oversmooth: near-uniform attention repeatedly averages node
+        # features together, collapsing genuinely distinct per-asset inputs
+        # to numerically identical outputs within 2 layers (verified: cross
+        # -node std 0.54 at input -> ~0.03 after layer 0 -> ~1e-9 after layer
+        # 1 without this projection).
+        self.gat_residual_proj = nn.ModuleList()
 
         in_dim = hidden_dim
         for i in range(num_layers):
@@ -151,6 +161,9 @@ class MacroGraphPrior(nn.Module):
             self.gat_layers.append(layer)
             out_dim = layer.output_dim
             self.gat_norms.append(nn.LayerNorm(out_dim))
+            self.gat_residual_proj.append(
+                nn.Identity() if in_dim == out_dim else nn.Linear(in_dim, out_dim)
+            )
             in_dim = out_dim
 
         # Graph-level readout
@@ -215,15 +228,14 @@ class MacroGraphPrior(nn.Module):
 
         # Apply GAT layers
         all_attention = []
-        for gat, norm in zip(self.gat_layers, self.gat_norms):
+        for gat, norm, res_proj in zip(self.gat_layers, self.gat_norms, self.gat_residual_proj):
             h_new, attn = gat(h, adj)
             h_new = F.elu(h_new)
             h_new = norm(h_new)
-            # Residual if dimensions match
-            if h_new.shape == h.shape:
-                h = h + h_new
-            else:
-                h = h_new
+            # Always-on residual (projected when concat changes the width).
+            # This is what lets each node's identity survive the layer even
+            # when the attention distribution is close to uniform.
+            h = res_proj(h) + h_new
             all_attention.append(attn)
 
         node_embeddings = h

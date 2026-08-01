@@ -35,7 +35,7 @@ class PPOAgent(nn.Module):
 
     def __init__(
         self,
-        n_features: int,
+        n_features_per_asset: int,
         n_assets: int,
         n_macro: int = 0,
         # Regime encoder config
@@ -70,7 +70,7 @@ class PPOAgent(nn.Module):
 
         # ── Differentiable Regime Encoder ──
         self.regime_encoder = DifferentiableRegimeEncoder(
-            n_features=n_features,
+            n_features_per_asset=n_features_per_asset,
             n_assets=n_assets,
             n_macro=n_macro,
             vsn_hidden_dim=vsn_hidden_dim,
@@ -115,36 +115,43 @@ class PPOAgent(nn.Module):
         Full forward pass: Observation → Encoder → Actor + Critic.
         
         Args:
-            observation: (batch, seq_len, n_features) temporal context x_t
+            observation: (batch, n_assets, seq_len, n_features_per_asset), or
+                (batch, seq_len, n_assets*n_features_per_asset) — the encoder
+                reshapes the flat form automatically.
             adj: optional graph adjacency matrix
             lstm_hidden: optional LSTM hidden state
             deterministic: if True, use mean action (no exploration)
-            
+
         Returns:
             dict with all outputs for PPO training
         """
-        # Step 1: Encode observation → latent market state + regime
+        # Step 1: Encode observation → per-asset latent state + pooled
+        # market state + regime
         encoder_out = self.regime_encoder(observation, adj, lstm_hidden)
-        h_temp = encoder_out["h_temp"]
+        h_asset = encoder_out["h_asset"]      # (B, N, latent_dim) — for the actor
+        h_market = encoder_out["h_market"]    # (B, latent_dim) — for the critic
         regime_probs = encoder_out["regime_probs"]
 
-        # Step 2: Actor — generate portfolio weights
-        action, log_prob, entropy = self.actor(
-            h_temp, regime_probs, deterministic
+        # Step 2: Actor — generate portfolio weights, per asset
+        action, raw_action, log_prob, entropy = self.actor(
+            h_asset, regime_probs, deterministic
         )
 
-        # Step 3: Critic — estimate state value
-        value = self.critic(h_temp, regime_probs)
+        # Step 3: Critic — estimate state value from the pooled market state
+        value = self.critic(h_market, regime_probs)
 
         return {
             # Actions & policy
-            "action": action,           # (B, n_assets) portfolio weights
+            "action": action,           # (B, n_assets) portfolio weights (→ env)
+            "raw_action": raw_action,   # (B, n_assets) pre-softmax sample (→ PPO)
             "log_prob": log_prob,       # (B,) log π(a|s)
             "entropy": entropy,         # (B,) policy entropy
             # Value
             "value": value,             # (B,) V(s)
             # Encoder outputs
-            "h_temp": h_temp,           # (B, latent_dim) latent state
+            "h_asset": h_asset,         # (B, N, latent_dim) per-asset latent state
+            "h_temp": h_market,         # (B, latent_dim) pooled latent state (back-compat name)
+            "h_market": h_market,       # (B, latent_dim) pooled latent state
             "regime_probs": regime_probs,  # (B, n_regimes) regime probs
             "regime_logits": encoder_out["regime_logits"],
             "var_weights": encoder_out["var_weights"],
@@ -155,32 +162,36 @@ class PPOAgent(nn.Module):
     def evaluate_actions(
         self,
         observation: torch.Tensor,
-        action: torch.Tensor,
+        raw_action: torch.Tensor,
         adj: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         """
         Evaluate log probability and value of given state-action pairs.
         Used during PPO update to compute the importance sampling ratio.
-        
+
         Args:
-            observation: (batch, seq_len, n_features)
-            action: (batch, n_assets) actions to evaluate
-            
+            observation: (batch, n_assets, seq_len, n_features_per_asset), or
+                (batch, seq_len, n_assets*n_features_per_asset)
+            raw_action: (batch, n_assets) the pre-softmax samples stored during
+                rollout. Passing normalized weights here silently breaks the
+                PPO ratio — the density is defined over the raw space.
+
         Returns:
             dict with log_prob, value, entropy for PPO loss computation
         """
         # Encode
         encoder_out = self.regime_encoder(observation, adj)
-        h_temp = encoder_out["h_temp"]
+        h_asset = encoder_out["h_asset"]
+        h_market = encoder_out["h_market"]
         regime_probs = encoder_out["regime_probs"]
 
         # Actor — evaluate given action
         log_prob, entropy = self.actor.get_log_prob(
-            h_temp, action, regime_probs
+            h_asset, raw_action, regime_probs
         )
 
         # Critic — value estimate
-        value = self.critic(h_temp, regime_probs)
+        value = self.critic(h_market, regime_probs)
 
         return {
             "log_prob": log_prob,
@@ -208,6 +219,7 @@ class PPOAgent(nn.Module):
 
         return out["action"], {
             "value": out["value"],
+            "raw_action": out["raw_action"],
             "log_prob": out["log_prob"],
             "regime_probs": out["regime_probs"],
             "lstm_hidden": out["lstm_hidden"],

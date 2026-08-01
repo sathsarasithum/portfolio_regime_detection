@@ -129,6 +129,12 @@ def run_pipeline(args):
     logger.info("Engineering features across the full dataset...")
     features_all = preprocessor.engineer_features(prices, volumes, macro_data=None)
 
+    # Reorder columns so each asset's features are contiguous and in
+    # identical order — required so the per-asset encoder can reshape the
+    # flat (T, N*F) feature matrix into (T, N, F) per-asset windows.
+    features_all = preprocessor.reorder_per_asset(features_all, config.data.asset_names)
+    n_features_per_asset = preprocessor.n_features_per_asset
+
     # Align prices to engineered features
     prices = prices.loc[features_all.index]
     volumes = volumes.loc[features_all.index]
@@ -174,6 +180,8 @@ def run_pipeline(args):
         slippage=config.environment.slippage,
         allow_short=config.environment.allow_short_selling,
         max_position_size=config.environment.max_position_size,
+        vol_target=config.environment.vol_target,
+        vol_ewma_span=config.environment.vol_ewma_span,
     )
 
     val_env = MarketEnvironment(
@@ -184,6 +192,8 @@ def run_pipeline(args):
         slippage=config.environment.slippage,
         allow_short=config.environment.allow_short_selling,
         max_position_size=config.environment.max_position_size,
+        vol_target=config.environment.vol_target,
+        vol_ewma_span=config.environment.vol_ewma_span,
     )
 
     test_env = MarketEnvironment(
@@ -194,13 +204,23 @@ def run_pipeline(args):
         slippage=config.environment.slippage,
         allow_short=config.environment.allow_short_selling,
         max_position_size=config.environment.max_position_size,
+        vol_target=config.environment.vol_target,
+        vol_ewma_span=config.environment.vol_ewma_span,
     )
 
     # 8. Initialize joint PPO Agent
-    n_features = windows_train.shape[2]  # typically config.data.n_assets * 15
-    logger.info(f"Initializing PPO Agent with {config.data.n_assets} assets and {n_features} features...")
+    n_features_total = windows_train.shape[2]  # n_assets * n_features_per_asset
+    assert n_features_total == config.data.n_assets * n_features_per_asset, (
+        f"Window feature dim {n_features_total} != n_assets({config.data.n_assets}) "
+        f"* n_features_per_asset({n_features_per_asset}) — reorder_per_asset() and "
+        f"create_windows() are out of sync."
+    )
+    logger.info(
+        f"Initializing PPO Agent with {config.data.n_assets} assets x "
+        f"{n_features_per_asset} features/asset ({n_features_total} total)..."
+    )
     agent = PPOAgent(
-        n_features=n_features,
+        n_features_per_asset=n_features_per_asset,
         n_assets=config.data.n_assets,
         n_macro=0,  # CRITICAL: No macroeconomic variables
         vsn_hidden_dim=config.regime_encoder.vsn_hidden_dim,
@@ -294,20 +314,26 @@ def run_pipeline(args):
 def evaluate_env(agent, env, device, output_dir, split_name="Test", asset_names=None):
     agent.eval()
     obs = env.reset()
-    lstm_hidden = None
     done = False
 
     os.makedirs(output_dir, exist_ok=True)
     summary_path = os.path.join(output_dir, f"{split_name.lower()}_summary.json")
 
+    raw_action_history = [np.zeros(env.n_assets, dtype=float)]
     logger.info(f"Running simulation on {split_name} environment...")
     while not done:
         obs_tensor = torch.FloatTensor(obs["features"]).unsqueeze(0).to(device)
         with torch.no_grad():
-            action, info = agent.get_action(obs_tensor, lstm_hidden=lstm_hidden, deterministic=True)
-            lstm_hidden = info["lstm_hidden"]
+            # Fresh hidden state per window, matching training
+            action, action_info = agent.get_action(obs_tensor, deterministic=True)
 
         action_np = action.cpu().numpy()[0]
+        raw_action_np = action_info["raw_action"].cpu().numpy()[0]
+        raw_action_history.append(raw_action_np)
+        logger.info(
+            f"Step {env.current_step}: raw_action={raw_action_np.tolist()} | normalized_weight={action_np.tolist()}"
+        )
+
         next_obs, _, done, _ = env.step(action_np)
         if next_obs is None:
             break
@@ -341,14 +367,20 @@ def evaluate_env(agent, env, device, output_dir, split_name="Test", asset_names=
                 "portfolio_return": float(env.return_history[step - 1]) if step > 0 else 0.0,
                 "total_cost": float(env.cost_history[step - 1]) if step > 0 else 0.0,
             }
+            raw_weights = raw_action_history[step]
             for asset_idx, weight in enumerate(weights):
                 asset_name = asset_names[asset_idx] if asset_names is not None and asset_idx < len(asset_names) else f"asset_{asset_idx}"
                 record[f"{asset_name}_weight"] = float(weight)
+                record[f"{asset_name}_raw_weight"] = float(raw_weights[asset_idx])
             records.append(record)
 
         weights_path = os.path.join(output_dir, f"{split_name.lower()}_weights.csv")
         pd.DataFrame(records).to_csv(weights_path, index=False)
         logger.info(f"Saved step-by-step weights to: {weights_path}")
+
+        raw_weights_path = os.path.join(output_dir, f"{split_name.lower()}_raw_weights.xlsx")
+        pd.DataFrame(records).to_excel(raw_weights_path, index=False)
+        logger.info(f"Saved raw-weight Excel file to: {raw_weights_path}")
     except Exception as e:
         logger.warning(f"Failed to save step-by-step weight history: {e}")
 

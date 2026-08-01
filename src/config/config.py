@@ -92,11 +92,13 @@ class PPOConfig:
     clip_epsilon: float = 0.2          # PPO clipping parameter
     gamma: float = 0.99                # Discount factor
     gae_lambda: float = 0.95          # GAE lambda
-    entropy_coeff: float = 0.01       # Entropy bonus coefficient
+    #entropy_coeff: float = 0.01       # Entropy bonus coefficient
+    entropy_coeff: float = 0.02
     value_loss_coeff: float = 0.5     # Value loss weight
 
     # Optimization
-    learning_rate: float = 3e-4
+    #learning_rate: float = 3e-4
+    learning_rate: float = 1e-4
     max_grad_norm: float = 0.5        # Gradient clipping
     batch_size: int = 64
     n_epochs: int = 10                 # PPO update epochs per rollout
@@ -125,10 +127,19 @@ class RewardConfig:
 class EnvironmentConfig:
     """Market Environment Configuration."""
     initial_portfolio_value: float = 1_000_000.0   # LKR 1M initial capital
-    allow_short_selling: bool = False               # Long-only for CSE
+    #allow_short_selling: bool = True                # Long/short — DeePM-style independent per-asset tanh signal.
+                                                      # NOTE: CSE short-selling/SBL availability for your account
+                                                      # type is unverified — confirm before treating results as
+                                                      # executable. Set back to False to revert to long-only softmax.
+    allow_short_selling: bool = False                # Long/short — DeePM-style independent per-asset tanh signal.                                                  
     max_position_size: float = 0.30                 # Max 30% in single asset
     rebalance_frequency: int = 1                    # Daily rebalancing
     slippage: float = 0.0005                        # 0.05% slippage
+    vol_target: bool = True                         # Scale the long/short tanh signal by
+                                                      # relative inverse volatility (DeePM Eq. 11)
+                                                      # before position-size clipping. No effect
+                                                      # when allow_short_selling is False.
+    vol_ewma_span: int = 63                          # EWMA lookback (days) for the vol estimate
 
 
 @dataclass

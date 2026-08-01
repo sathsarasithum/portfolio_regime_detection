@@ -169,8 +169,33 @@ class VSNLSTM(nn.Module):
             dropout=dropout if lstm_num_layers > 1 else 0.0,
         )
 
+        # Normalizes the LSTM output scale. Without it a stacked LSTM at
+        # default init attenuates the signal ~4x per layer, so h_temp ends up
+        # almost independent of the observation and the policy emits the same
+        # allocation every day.
+        self.lstm_norm = nn.LayerNorm(lstm_hidden_dim)
+
         # Output projection
         self.output_proj = nn.Linear(lstm_hidden_dim, lstm_hidden_dim)
+
+        self._init_lstm()
+
+    def _init_lstm(self):
+        """
+        Orthogonal recurrent weights + unit forget-gate bias (Jozefowicz et
+        al., 2015). The forget bias keeps the cell state from decaying to zero
+        across the window, which is what preserves input sensitivity.
+        """
+        for name, param in self.lstm.named_parameters():
+            if "weight_hh" in name:
+                for i in range(0, param.shape[0], self.lstm_hidden_dim):
+                    nn.init.orthogonal_(param[i:i + self.lstm_hidden_dim])
+            elif "weight_ih" in name:
+                nn.init.xavier_uniform_(param)
+            elif "bias" in name:
+                nn.init.zeros_(param)
+                # PyTorch gate order is [input, forget, cell, output]
+                param.data[self.lstm_hidden_dim:2 * self.lstm_hidden_dim] = 1.0
 
     def forward(
         self,
@@ -194,6 +219,6 @@ class VSNLSTM(nn.Module):
         lstm_out, hidden = self.lstm(selected, hidden)   # (B, T, lstm_hidden_dim)
 
         # Project output
-        output = self.output_proj(lstm_out)
+        output = self.output_proj(self.lstm_norm(lstm_out))
 
         return output, var_weights, hidden

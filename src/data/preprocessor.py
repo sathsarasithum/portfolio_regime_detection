@@ -22,6 +22,16 @@ class Preprocessor:
         Raw Prices/Volumes → Returns → Technical Indicators → Normalization → Windowing → x_t
     """
 
+    # Fixed per-asset suffix order produced by engineer_features(). Every asset
+    # contributes exactly one column per suffix below (with "" meaning the raw
+    # log-return column itself, named after the asset with no suffix).
+    PER_ASSET_SUFFIXES = [
+        "", "_vol_5d", "_vol_10d", "_vol_20d",
+        "_mom_5d", "_mom_10d", "_mom_20d",
+        "_rsi", "_macd", "_macd_signal", "_macd_hist", "_bb_pct",
+        "_vol_ratio_5d", "_vol_ratio_10d", "_vol_ratio_20d",
+    ]
+
     def __init__(self, window_size: int = 60, normalize_method: str = "zscore"):
         self.window_size = window_size
         self.normalize_method = normalize_method
@@ -177,6 +187,57 @@ class Preprocessor:
             f"{all_features.shape[0]} timesteps"
         )
         return all_features
+
+    # ──────────────────────────────────────────────
+    # Per-asset column reordering (for the per-asset encoder)
+    # ──────────────────────────────────────────────
+    def reorder_per_asset(
+        self,
+        features: pd.DataFrame,
+        asset_names: list,
+    ) -> pd.DataFrame:
+        """
+        Reorder engineer_features() output so each asset's PER_ASSET_SUFFIXES
+        columns are contiguous, in identical order across assets:
+            [asset0_f0, asset0_f1, ..., asset0_f14, asset1_f0, ..., assetN_f14]
+
+        This lets the model reshape the flat (T, N*F) feature matrix into
+        (T, N, F) and process each asset with a shared per-asset encoder,
+        instead of mixing all assets' raw features into one vector.
+
+        Args:
+            features: DataFrame from engineer_features() (any column order).
+                Must NOT include macro columns — those aren't per-asset.
+            asset_names: list of N asset tickers, in the desired node order.
+
+        Returns:
+            DataFrame with the same rows, reordered/selected columns:
+            shape (T, N * len(PER_ASSET_SUFFIXES)).
+        """
+        cols = []
+        for asset in asset_names:
+            for suffix in self.PER_ASSET_SUFFIXES:
+                col = f"{asset}{suffix}"
+                if col not in features.columns:
+                    raise KeyError(
+                        f"Expected per-asset column '{col}' not found in features. "
+                        f"reorder_per_asset() assumes engineer_features() was called "
+                        f"with default settings (all indicator blocks enabled) and "
+                        f"no macro_data (macro columns aren't per-asset)."
+                    )
+                cols.append(col)
+
+        logger.info("Reordering per-asset columns for assets: %s", asset_names)
+        logger.info("Per-asset column order (%d columns): %s", len(cols), cols)
+        print(f"[reorder_per_asset] assets={asset_names}")
+        print(f"[reorder_per_asset] columns={cols}")
+
+        return features[cols]
+
+    @property
+    def n_features_per_asset(self) -> int:
+        """Number of engineered features per asset (columns in PER_ASSET_SUFFIXES)."""
+        return len(self.PER_ASSET_SUFFIXES)
 
     # ──────────────────────────────────────────────
     # Normalization

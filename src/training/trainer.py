@@ -26,7 +26,7 @@ from ..models.ppo_agent import PPOAgent
 from ..environment.market_env import MarketEnvironment
 from ..environment.reward import RewardCalculator
 from ..data.dataset import RolloutBuffer
-from .advantage import compute_gae, normalize_advantages
+from .advantage import compute_gae, normalize_advantages, RewardNormalizer
 from .optimizer import create_optimizer, create_scheduler
 
 logger = logging.getLogger(__name__)
@@ -95,6 +95,9 @@ class PPOTrainer:
 
         # Reward calculator
         self.reward_calc = RewardCalculator()
+        # Keeps discounted returns O(1) so the critic's gradient does not
+        # dominate the shared global grad-norm clip and starve the actor.
+        self.reward_normalizer = RewardNormalizer(gamma=gamma)
 
         # Logging
         os.makedirs(log_dir, exist_ok=True)
@@ -127,7 +130,6 @@ class PPOTrainer:
         portfolio_returns = []
 
         obs = self.train_env.reset()
-        lstm_hidden = None
 
         for step in range(self.rollout_length):
             # Convert observation to tensor
@@ -135,31 +137,41 @@ class PPOTrainer:
                 obs["features"]
             ).unsqueeze(0).to(self.device)
 
-            # Get action from policy
+            # Get action from policy.
+            # No LSTM state is carried across steps: each observation is a
+            # complete sliding window, and evaluate_actions() re-encodes with a
+            # fresh hidden state. Carrying it here would make the stored
+            # log_prob refer to a different state than the one re-evaluated
+            # during the update, corrupting the PPO ratio from epoch 0.
             with torch.no_grad():
-                out = self.agent(obs_tensor, lstm_hidden=lstm_hidden)
+                out = self.agent(obs_tensor)
 
-            action = out["action"].cpu().numpy()[0]
+            weights = out["action"].cpu().numpy()[0]
+            raw_action = out["raw_action"].cpu().numpy()[0]
             log_prob = out["log_prob"].cpu().item()
             value = out["value"].cpu().item()
             regime_probs = out["regime_probs"].cpu().numpy()[0]
-            lstm_hidden = out["lstm_hidden"]
+
+            logger.info(
+                f"Train step {step}: raw_action={raw_action.tolist()} normalized_weight={weights.tolist()}"
+            )
 
             # Store old weights before step
             old_weights = self.train_env.current_weights.copy()
 
-            # Step environment
-            next_obs, portfolio_return, done, info = self.train_env.step(action)
+            # Step environment with the normalized allocation
+            next_obs, portfolio_return, done, info = self.train_env.step(weights)
 
             # Compute reward
             reward_info = self.reward_calc.compute_reward(
-                portfolio_return, old_weights, action
+                portfolio_return, old_weights, weights
             )
             reward = reward_info["net_reward"]
 
-            # Store transition
+            # Store transition — the RAW action, since that is what log_prob
+            # was computed for and what the update must re-evaluate.
             observations.append(obs["features"])
-            actions.append(action)
+            actions.append(raw_action)
             log_probs.append(log_prob)
             values.append(value)
             rewards.append(reward)
@@ -170,7 +182,6 @@ class PPOTrainer:
             if done:
                 obs = self.train_env.reset()
                 self.reward_calc.reset()
-                lstm_hidden = None
             else:
                 obs = next_obs
 
@@ -179,7 +190,7 @@ class PPOTrainer:
             obs_tensor = torch.FloatTensor(
                 obs["features"]
             ).unsqueeze(0).to(self.device)
-            last_out = self.agent(obs_tensor, lstm_hidden=lstm_hidden)
+            last_out = self.agent(obs_tensor)
             last_value = last_out["value"].cpu().item()
 
         return {
@@ -263,9 +274,15 @@ class PPOTrainer:
         observations = torch.FloatTensor(rollout["observations"]).to(self.device)
         actions = torch.FloatTensor(rollout["actions"]).to(self.device)
         old_log_probs = torch.FloatTensor(rollout["log_probs"]).to(self.device)
-        rewards_np = rollout["rewards"]
         values_np = rollout["values"]
         dones_np = rollout["dones"]
+
+        # Scale rewards to unit discounted-return std before GAE, so that
+        # rewards, values and returns all live in one consistent scale.
+        # collect_rollout() always begins from env.reset(), so the discounted
+        # -return accumulator restarts with it.
+        self.reward_normalizer.reset()
+        rewards_np = self.reward_normalizer(rollout["rewards"], dones_np)
 
         # Compute GAE advantages
         rewards_t = torch.FloatTensor(rewards_np).to(self.device)
@@ -349,7 +366,6 @@ class PPOTrainer:
         self.reward_calc.reset()
 
         obs = self.val_env.reset()
-        lstm_hidden = None
         done = False
 
         while not done:
@@ -357,10 +373,10 @@ class PPOTrainer:
                 obs["features"]
             ).unsqueeze(0).to(self.device)
 
-            action, info = self.agent.get_action(
-                obs_tensor, lstm_hidden=lstm_hidden, deterministic=True
+            # Match collect_rollout: fresh hidden state per window
+            action, _ = self.agent.get_action(
+                obs_tensor, deterministic=True
             )
-            lstm_hidden = info["lstm_hidden"]
 
             action_np = action.cpu().numpy()[0]
             obs, _, done, _ = self.val_env.step(action_np)

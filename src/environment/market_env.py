@@ -6,6 +6,7 @@ Executes trades, tracks portfolio value, and calculates transaction costs.
 """
 
 import numpy as np
+import pandas as pd
 import torch
 from typing import Dict, Tuple, Optional
 import logging
@@ -38,6 +39,8 @@ class MarketEnvironment:
         slippage: float = 0.0005,
         allow_short: bool = False,
         max_position_size: float = 0.30,
+        vol_target: bool = True,
+        vol_ewma_span: int = 63,
     ):
         """
         Args:
@@ -48,6 +51,11 @@ class MarketEnvironment:
             slippage: execution slippage rate
             allow_short: whether short selling is allowed
             max_position_size: maximum weight in single asset
+            vol_target: if True (and allow_short), scale the actor's raw
+                tanh signal by each asset's inverse volatility before
+                clipping — see _compute_vol_scale() for why and how.
+            vol_ewma_span: EWMA span (in days) for the volatility estimate,
+                63 days (~1 quarter) following DeePM (Eq. 11).
         """
         self.prices = prices
         self.features = features
@@ -58,6 +66,9 @@ class MarketEnvironment:
         self.slippage = slippage
         self.allow_short = allow_short
         self.max_position_size = max_position_size
+        self.vol_target = vol_target
+        self.vol_ewma_span = vol_ewma_span
+        self.vol_scale = self._compute_vol_scale() if vol_target else None
 
         # State variables
         self.current_step = 0
@@ -68,6 +79,56 @@ class MarketEnvironment:
         self.return_history = []
         self.cost_history = []
         self.done = False
+
+    def _compute_vol_scale(self) -> np.ndarray:
+        """
+        Per-asset, per-step relative volatility scaling factor for the
+        long/short tanh action space (DeePM Eq. 11: v = 1/sigma_hat).
+
+        Why this lives here, not in the actor: the actor only ever sees
+        z-scored engineered features, not real prices, so it has no basis
+        for comparing assets' actual risk. This project's own 10 banks span
+        a genuine ~10x range in daily volatility (e.g. HNB ~1% vs NTB
+        ~10%), so an identical tanh signal on two assets currently implies
+        wildly different real risk — this is what that scaling corrects.
+
+        Why "relative" (mean / sigma_i) rather than a raw 1/sigma_i
+        multiplier: a raw 1/sigma_i is not scale-free — for a low-vol asset
+        like HNB (sigma~0.0107) it's ~93x, which would saturate
+        max_position_size for almost any nonzero signal, while DeePM avoids
+        this because they rescale the *whole portfolio* to a target
+        volatility ex-post (Sec 6.3) rather than capping each position
+        individually. Centering the scale factor at 1.0 across the
+        cross-section keeps "an average-risk asset" behaving like the
+        unscaled model did, while shifting relative sizing toward safer
+        names — compatible with the existing fixed max_position_size cap.
+
+        No-lookahead note: sigma_hat for the decision made at step t uses
+        only returns realized up to (not including) step t, i.e. it is
+        shifted by one day relative to the raw EWMA. Day 0 is the one
+        exception — it reuses day 0's own trailing estimate since no prior
+        return exists yet; this is a one-day, first-step-only approximation.
+
+        Returns:
+            vol_scale: (n_steps, n_assets) multiplier, apply as
+                `action * vol_scale[current_step]` BEFORE _clip_weights.
+        """
+        log_returns = np.diff(np.log(self.prices + 1e-10), axis=0)  # (n_steps, n_assets)
+        ewma_vol = (
+            pd.DataFrame(log_returns)
+            .ewm(span=self.vol_ewma_span, min_periods=1)
+            .std()
+            .bfill()
+            .values
+        )  # (n_steps, n_assets), row i estimated from returns[0..i]
+
+        # Shift by one day: the estimate usable at decision time t must not
+        # include day t's own return.
+        sigma_hat = np.vstack([ewma_vol[0:1], ewma_vol[:-1]])
+        sigma_hat = np.maximum(sigma_hat, 1e-6)  # guard near-zero vol
+
+        cross_sectional_mean = sigma_hat.mean(axis=1, keepdims=True)
+        return cross_sectional_mean / sigma_hat  # (n_steps, n_assets), centered ~1.0
 
     def reset(self) -> Dict[str, np.ndarray]:
         """Reset environment to initial state."""
@@ -115,13 +176,30 @@ class MarketEnvironment:
         return self.slippage * turnover * self.portfolio_value
 
     def _clip_weights(self, weights: np.ndarray) -> np.ndarray:
-        """Clip weights to respect position size limits."""
+        """
+        Clip weights to respect position size limits.
+
+        Long-only: cap each weight at max_position_size, then renormalize
+        the capped weights back onto the simplex (sum to 1, fully invested).
+
+        Long-short: cap each weight's MAGNITUDE at max_position_size and
+        leave it there — no renormalization. Dividing by weights.sum() is
+        wrong here: with signed weights the sum is the NET exposure, which
+        can be small or negative even when positions are large (e.g.
+        weights=[+0.3,-0.28,...] sums to ~0.02), so dividing by it explodes
+        the position sizes arbitrarily (verified: a sum of 0.0248 inflated a
+        single weight to 7.75, i.e. 775% of capital in one asset). Relative
+        volatility scaling (see _compute_vol_scale, applied in step() before
+        this is called) reduces how often the cap binds for high-vol assets,
+        but max_position_size remains the hard exposure control: gross
+        exposure is bounded by n_assets * max_position_size.
+        """
         if self.max_position_size < 1.0:
             weights = np.clip(weights, -self.max_position_size, self.max_position_size)
-            # Re-normalize
-            weight_sum = weights.sum()
-            if weight_sum > 0:
-                weights = weights / weight_sum
+            if not self.allow_short:
+                weight_sum = weights.sum()
+                if weight_sum > 0:
+                    weights = weights / weight_sum
         return weights
 
     def step(
@@ -142,6 +220,14 @@ class MarketEnvironment:
         """
         if self.done:
             raise RuntimeError("Environment is done. Call reset().")
+
+        # Volatility-scaled notional sizing (DeePM Eq. 11-12): rescale the
+        # actor's raw per-asset signal by relative inverse volatility before
+        # applying position-size limits. Only meaningful for the
+        # independent long/short signal — the long-only softmax weights are
+        # already a resource-constrained allocation, not a signal to scale.
+        if self.allow_short and self.vol_target:
+            action = action * self.vol_scale[self.current_step]
 
         # Clip weights
         new_weights = self._clip_weights(action.copy())
