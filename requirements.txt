@@ -36,3 +36,9 @@ arch>=6.0.0
 
 # Configuration
 pyyaml>=6.0
+
+# Web demo backend (backend/)
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+joblib>=1.3.0
+requests>=2.31.0

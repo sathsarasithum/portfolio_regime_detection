@@ -35,3 +35,6 @@ results/
 
 # Logs
 *.log
+
+# CSE session credentials (short-lived, never commit)
+backend/cse_token.txt

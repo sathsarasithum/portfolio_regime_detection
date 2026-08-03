@@ -66,6 +66,7 @@ class GatedResidualNetwork(nn.Module):
         # Add & Norm
         output = self.layer_norm(h + residual)
         return output
+        
 
 
 class VariableSelectionNetwork(nn.Module):

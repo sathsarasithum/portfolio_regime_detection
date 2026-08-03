@@ -1,0 +1,393 @@
+:root {
+  --bg: #f5f7fa;
+  --card-bg: #ffffff;
+  --border: #e2e6ec;
+  --text: #1a2233;
+  --text-muted: #667085;
+  --accent: #2563eb;
+  --accent-soft: #dbe6fd;
+  --green: #16a34a;
+  --red: #dc2626;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px 20px 60px;
+}
+
+.header {
+  margin-bottom: 24px;
+}
+
+.header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.header h1 {
+  margin: 0 0 4px;
+  font-size: 1.6rem;
+}
+
+.subtitle {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.mode-toggle {
+  display: flex;
+  gap: 8px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 4px;
+}
+
+.mode-toggle button {
+  border: none;
+  background: transparent;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.mode-toggle button.active {
+  background: var(--accent);
+  color: white;
+}
+
+.disclaimer {
+  margin-top: 12px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  background: var(--accent-soft);
+  padding: 10px 14px;
+  border-radius: 8px;
+}
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 22px;
+  margin-bottom: 20px;
+}
+
+.card h2 {
+  margin: 0 0 14px;
+  font-size: 1.05rem;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 800px) {
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.side-col > .card:last-child {
+  margin-bottom: 0;
+}
+
+.alloc-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.alloc-table th {
+  text-align: left;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.alloc-table td {
+  padding: 10px 6px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.ticker {
+  font-weight: 600;
+  margin-right: 8px;
+}
+
+.asset-name {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.weight-cell {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.bar-cell {
+  width: 30%;
+}
+
+.bar-track {
+  background: var(--bg);
+  border-radius: 6px;
+  height: 8px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  background: var(--accent);
+  height: 100%;
+  border-radius: 6px;
+}
+
+.regime-fill {
+  background: #7c3aed;
+}
+
+.value-cell {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.delta-cell {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.badge-buy {
+  background: #dcfce7;
+  color: var(--green);
+}
+
+.badge-sell {
+  background: #fee2e2;
+  color: var(--red);
+}
+
+.badge-neutral {
+  background: var(--bg);
+  color: var(--text-muted);
+}
+
+.delta-cell .positive {
+  color: var(--green);
+}
+
+.delta-cell .negative {
+  color: var(--red);
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+
+.metric-tile {
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.metric-value {
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.metric-label {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.equity-svg {
+  width: 100%;
+  height: 220px;
+}
+
+.axis {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.equity-line {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+
+.equity-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+
+.date-slider-card .date-slider-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.date-slider {
+  width: 100%;
+  margin: 12px 0;
+}
+
+.date-slider-controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.date-slider-controls button,
+.live-error button {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.date-slider-note {
+  margin: 12px 0 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.live-error {
+  border-color: #fca5a5;
+}
+
+.error-message {
+  color: var(--red);
+  font-weight: 500;
+}
+
+.live-note {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.regime-top {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.regime-row {
+  display: grid;
+  grid-template-columns: 90px 1fr 50px;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.regime-label {
+  font-size: 0.85rem;
+}
+
+.regime-pct {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.as-of {
+  color: var(--text-muted);
+  margin: 0 0 12px;
+}
+
+.daily-table-scroll {
+  max-height: 420px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.daily-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.daily-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--card-bg);
+  text-align: left;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  z-index: 1;
+}
+
+.daily-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+.daily-table tbody tr {
+  cursor: pointer;
+}
+
+.daily-table tbody tr:hover {
+  background: var(--bg);
+}
+
+.daily-table tbody tr.active-row {
+  background: var(--accent-soft);
+}
+
+.daily-table .positive {
+  color: var(--green);
+}
+
+.daily-table .negative {
+  color: var(--red);
+}
+
+.footer {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin-top: 30px;
+}
